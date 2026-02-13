@@ -4,8 +4,6 @@ import {
   InstallmentSchedule, Allotment, Payment, PaymentRequest, 
   MasterSettings, ChitStatus, PaymentStatus 
 } from './types';
-import { put, list } from '@vercel/blob';
-
 const CLOUD_FILENAME = 'bhadrakali_db.json';
 
 const INITIAL_USERS: User[] = [
