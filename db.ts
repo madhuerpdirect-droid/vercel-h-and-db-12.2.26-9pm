@@ -18,6 +18,7 @@ export class Database {
 
   private loadFromLocal() {
     const data = localStorage.getItem('mi_chit_db');
+
     if (!data) {
       const initial = {
         users: [],
@@ -31,6 +32,7 @@ export class Database {
         settings: {},
         lastUpdated: new Date().toISOString()
       };
+
       localStorage.setItem('mi_chit_db', JSON.stringify(initial));
     }
   }
@@ -120,3 +122,5 @@ export class Database {
     }
   }
 }
+
+export const db = new Database();
