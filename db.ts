@@ -1,53 +1,70 @@
 export class Database {
+  private data: any;
   private isSyncing = false;
   private isDirty = false;
   private onSyncChange?: (syncing: boolean) => void;
   private onDirtyChange?: (dirty: boolean) => void;
 
   constructor() {
-    this.loadFromLocal();
+    const existing = localStorage.getItem('mi_chit_db');
+    this.data = existing ? JSON.parse(existing) : {
+      users: [],
+      chits: [],
+      members: [],
+      memberships: [],
+      installments: [],
+      allotments: [],
+      payments: [],
+      paymentRequests: [],
+      settings: {},
+      lastUpdated: new Date().toISOString()
+    };
+
+    localStorage.setItem('mi_chit_db', JSON.stringify(this.data));
   }
 
-  setSyncListener(callback: (syncing: boolean) => void) {
-    this.onSyncChange = callback;
+  // ---------------- STATUS ----------------
+
+  getDirtyStatus() {
+    return this.isDirty;
   }
 
-  setDirtyListener(callback: (dirty: boolean) => void) {
-    this.onDirtyChange = callback;
+  getSyncStatus() {
+    return this.isSyncing;
   }
 
-  private loadFromLocal() {
-    const data = localStorage.getItem('mi_chit_db');
-
-    if (!data) {
-      const initial = {
-        users: [],
-        chits: [],
-        members: [],
-        memberships: [],
-        installments: [],
-        allotments: [],
-        payments: [],
-        paymentRequests: [],
-        settings: {},
-        lastUpdated: new Date().toISOString()
-      };
-
-      localStorage.setItem('mi_chit_db', JSON.stringify(initial));
-    }
+  setSyncListener(cb: (v: boolean) => void) {
+    this.onSyncChange = cb;
   }
 
-  private getSerializedData(): string {
-    return localStorage.getItem('mi_chit_db') || '{}';
+  setDirtyListener(cb: (v: boolean) => void) {
+    this.onDirtyChange = cb;
   }
 
-  private deserialize(data: any) {
-    localStorage.setItem('mi_chit_db', JSON.stringify(data));
+  // ---------------- BASIC GETTERS ----------------
+
+  getUsers = () => this.data.users;
+  getChits = () => this.data.chits;
+  getMembers = () => this.data.members;
+  getMemberships = () => this.data.memberships;
+  getInstallments = () => this.data.installments;
+  getAllotments = () => this.data.allotments;
+  getPayments = () => this.data.payments;
+  getPaymentRequests = () => this.data.paymentRequests;
+  getSettings = () => this.data.settings;
+
+  // ---------------- SAVE ----------------
+
+  private saveLocal() {
+    this.data.lastUpdated = new Date().toISOString();
+    localStorage.setItem('mi_chit_db', JSON.stringify(this.data));
   }
 
   markDirty() {
     this.isDirty = true;
+    this.saveLocal();
     if (this.onDirtyChange) this.onDirtyChange(true);
+    setTimeout(() => this.syncWithCloud(), 1500);
   }
 
   async syncWithCloud(): Promise<boolean> {
@@ -57,24 +74,19 @@ export class Database {
     if (this.onSyncChange) this.onSyncChange(true);
 
     try {
-      const data = JSON.parse(this.getSerializedData());
-
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+        body: JSON.stringify(this.data)
       });
 
-      if (!response.ok) throw new Error('Sync failed');
+      if (!response.ok) throw new Error();
 
       this.isDirty = false;
       if (this.onDirtyChange) this.onDirtyChange(false);
 
-      localStorage.setItem('mi_chit_last_sync', new Date().toISOString());
       return true;
-
-    } catch (error) {
-      console.error("Sync failed:", error);
+    } catch {
       return false;
     } finally {
       this.isSyncing = false;
@@ -83,42 +95,25 @@ export class Database {
   }
 
   async loadCloudData(): Promise<boolean> {
-    if (!navigator.onLine) return false;
-
-    this.isSyncing = true;
-    if (this.onSyncChange) this.onSyncChange(true);
-
     try {
       const response = await fetch('/api/sync');
-
-      if (!response.ok) throw new Error("Cloud fetch failed");
+      if (!response.ok) return false;
 
       const result = await response.json();
-      const onlineData = result.data;
+      if (!result.data) return false;
 
-      if (!onlineData) return false;
+      const online = result.data;
+      const localTime = new Date(this.data.lastUpdated).getTime();
+      const onlineTime = new Date(online.lastUpdated).getTime();
 
-      const localDataRaw = localStorage.getItem('mi_chit_db');
-      const localData = localDataRaw ? JSON.parse(localDataRaw) : null;
-
-      const onlineTime = new Date(onlineData.lastUpdated || 0).getTime();
-      const localTime = new Date(localData?.lastUpdated || 0).getTime();
-
-      if (onlineTime > localTime || !localData) {
-        this.deserialize(onlineData);
-        this.isDirty = false;
-        if (this.onDirtyChange) this.onDirtyChange(false);
-        return true;
+      if (onlineTime > localTime) {
+        this.data = online;
+        this.saveLocal();
       }
 
+      return true;
+    } catch {
       return false;
-
-    } catch (e) {
-      console.warn("Cloud load failed:", e);
-      return false;
-    } finally {
-      this.isSyncing = false;
-      if (this.onSyncChange) this.onSyncChange(false);
     }
   }
 }
