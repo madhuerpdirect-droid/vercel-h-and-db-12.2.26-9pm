@@ -1,3 +1,45 @@
-export default function handler(req, res) {
-  res.status(200).json({ message: "Sync API Ready" });
+import { put, list } from '@vercel/blob';
+
+const CLOUD_FILENAME = 'bhadrakali_db.json';
+
+export default async function handler(req, res) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+
+  if (!token) {
+    return res.status(500).json({ error: "Missing BLOB_READ_WRITE_TOKEN" });
+  }
+
+  try {
+    if (req.method === 'POST') {
+      const data = req.body;
+
+      await put(CLOUD_FILENAME, JSON.stringify(data, null, 2), {
+        access: 'public',
+        addRandomSuffix: false,
+        token
+      });
+
+      return res.status(200).json({ success: true });
+    }
+
+    if (req.method === 'GET') {
+      const { blobs } = await list({ token });
+      const dbBlob = blobs.find(b => b.pathname === CLOUD_FILENAME);
+
+      if (!dbBlob) {
+        return res.status(200).json({ data: null });
+      }
+
+      const response = await fetch(dbBlob.url);
+      const json = await response.json();
+
+      return res.status(200).json({ data: json });
+    }
+
+    return res.status(405).json({ error: "Method not allowed" });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Sync failed" });
+  }
 }
