@@ -35,46 +35,28 @@ class DB {
   private onSyncChange?: (syncing: boolean) => void;
 
   constructor() {
-    this.load();
+    this.init();
+  }
+
+  private init() {
+    this.loadLocal();
     if (!this.users.length) {
       this.users = [...INITIAL_USERS];
       this.saveLocal();
     }
   }
 
-  // ------------------------
-  // LISTENERS
-  // ------------------------
+  /* ---------------- LISTENERS ---------------- */
 
-  setDirtyListener(listener: (dirty: boolean) => void) {
-    this.onDirtyChange = listener;
-  }
-
-  setSyncListener(listener: (syncing: boolean) => void) {
-    this.onSyncChange = listener;
-  }
+  setDirtyListener(cb: (dirty: boolean) => void) { this.onDirtyChange = cb; }
+  setSyncListener(cb: (syncing: boolean) => void) { this.onSyncChange = cb; }
 
   getDirtyStatus = () => this.isDirty;
   getSyncStatus = () => this.isSyncing;
 
-  // ------------------------
-  // LOCAL STORAGE
-  // ------------------------
+  /* ---------------- LOCAL STORAGE ---------------- */
 
-  private deserialize(parsed: any) {
-    this.users = parsed.users || [];
-    this.chits = parsed.chits || [];
-    this.members = parsed.members || [];
-    this.memberships = parsed.memberships || [];
-    this.installments = parsed.installments || [];
-    this.allotments = parsed.allotments || [];
-    this.payments = parsed.payments || [];
-    this.paymentRequests = parsed.paymentRequests || [];
-    this.settings = parsed.settings || INITIAL_MASTER_SETTINGS;
-    this.lastUpdated = parsed.lastUpdated || new Date().toISOString();
-  }
-
-  private getSerializedData() {
+  private getSerialized() {
     return {
       users: this.users,
       chits: this.chits,
@@ -85,34 +67,38 @@ class DB {
       payments: this.payments,
       paymentRequests: this.paymentRequests,
       settings: this.settings,
-      lastUpdated: new Date().toISOString()
+      lastUpdated: this.lastUpdated
     };
   }
 
-  load() {
-    const data = localStorage.getItem('mi_chit_db');
-    if (data) {
-      this.deserialize(JSON.parse(data));
-    }
+  private saveLocal() {
+    this.lastUpdated = new Date().toISOString();
+    localStorage.setItem('mi_chit_db', JSON.stringify(this.getSerialized()));
   }
 
-  saveLocal() {
-    localStorage.setItem('mi_chit_db', JSON.stringify(this.getSerializedData()));
+  private loadLocal() {
+    const raw = localStorage.getItem('mi_chit_db');
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      this.deserialize(data);
+    } catch {}
   }
 
-  markDirty() {
-    this.isDirty = true;
-    this.saveLocal();
-    this.onDirtyChange?.(true);
-
-    setTimeout(() => {
-      this.syncWithCloud();
-    }, 2000);
+  private deserialize(data: any) {
+    this.users = data.users || [];
+    this.chits = data.chits || [];
+    this.members = data.members || [];
+    this.memberships = data.memberships || [];
+    this.installments = data.installments || [];
+    this.allotments = data.allotments || [];
+    this.payments = data.payments || [];
+    this.paymentRequests = data.paymentRequests || [];
+    this.settings = data.settings || INITIAL_MASTER_SETTINGS;
+    this.lastUpdated = data.lastUpdated || new Date(0).toISOString();
   }
 
-  // ------------------------
-  // 🔥 CLOUD SYNC (FIXED)
-  // ------------------------
+  /* ---------------- CLOUD SYNC (API BASED) ---------------- */
 
   async syncWithCloud(): Promise<boolean> {
     if (!navigator.onLine) return false;
@@ -124,19 +110,18 @@ class DB {
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.getSerializedData())
+        body: JSON.stringify(this.getSerialized())
       });
 
       if (!response.ok) throw new Error('Sync failed');
 
       this.isDirty = false;
       this.onDirtyChange?.(false);
+      localStorage.setItem('mi_chit_last_sync', new Date().toISOString());
       return true;
-
-    } catch (err) {
-      console.error("Sync failed:", err);
+    } catch (e) {
+      console.error('Sync failed', e);
       return false;
-
     } finally {
       this.isSyncing = false;
       this.onSyncChange?.(false);
@@ -151,30 +136,40 @@ class DB {
 
     try {
       const response = await fetch('/api/sync');
-      if (!response.ok) throw new Error('Cloud load failed');
+      if (!response.ok) throw new Error();
 
       const result = await response.json();
       if (!result.data) return false;
 
-      this.deserialize(result.data);
-      this.saveLocal();
-      this.isDirty = false;
-      this.onDirtyChange?.(false);
+      const online = result.data;
+      const localRaw = localStorage.getItem('mi_chit_db');
+      const local = localRaw ? JSON.parse(localRaw) : null;
+
+      const onlineTime = new Date(online.lastUpdated || 0).getTime();
+      const localTime = new Date(local?.lastUpdated || 0).getTime();
+
+      if (onlineTime > localTime || !local) {
+        this.deserialize(online);
+        this.saveLocal();
+      }
+
       return true;
-
-    } catch (err) {
-      console.error("Cloud load failed:", err);
+    } catch {
       return false;
-
     } finally {
       this.isSyncing = false;
       this.onSyncChange?.(false);
     }
   }
 
-  // ------------------------
-  // GETTERS
-  // ------------------------
+  private markDirty() {
+    this.isDirty = true;
+    this.saveLocal();
+    this.onDirtyChange?.(true);
+    setTimeout(() => this.syncWithCloud(), 2000);
+  }
+
+  /* ---------------- BASIC OPERATIONS ---------------- */
 
   getUsers = () => this.users;
   getChits = () => this.chits;
@@ -185,10 +180,6 @@ class DB {
   getPayments = () => this.payments;
   getPaymentRequests = () => this.paymentRequests;
   getSettings = () => this.settings;
-
-  // ------------------------
-  // BASIC OPERATIONS
-  // ------------------------
 
   addMember(member: Member) {
     this.members.push(member);
