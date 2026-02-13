@@ -1,9 +1,13 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { put, list } from '@vercel/blob';
 
 const CLOUD_FILENAME = 'bhadrakali_db.json';
 
-export default async function handler(req, res) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN as string;
 
   if (!token) {
     return res.status(500).json({ error: "Missing BLOB_READ_WRITE_TOKEN" });
