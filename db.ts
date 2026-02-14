@@ -141,38 +141,6 @@ class DB {
     return await this.syncWithCloud();
   }
 
-  async syncWithCloud(): Promise<boolean> {
-    if (!navigator.onLine) return false;
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!token) {
-      console.warn("Sync failed: BLOB_READ_WRITE_TOKEN not found in environment.");
-      return false;
-    }
-
-    this.isSyncing = true;
-    if (this.onSyncChange) this.onSyncChange(true);
-    
-    try {
-      const response = await fetch('/api/sync', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: this.getSerializedData()
-});
-
-if (!response.ok) throw new Error('Cloud sync failed');
-      this.isDirty = false;
-      if (this.onDirtyChange) this.onDirtyChange(false);
-      localStorage.setItem('mi_chit_last_sync', new Date().toISOString());
-      return true;
-    } catch (error) {
-      console.error("Vercel Blob Sync failed:", error);
-      return false;
-    } finally {
-      this.isSyncing = false;
-      if (this.onSyncChange) this.onSyncChange(false);
-    }
-  }
-
   async loadCloudData(): Promise<boolean> {
   if (!navigator.onLine) return false;
 
@@ -203,34 +171,14 @@ if (!response.ok) throw new Error('Cloud sync failed');
 
     return false;
 
-  } catch {
-    return false;
-  } finally {
-    this.isSyncing = false;
-    this.onSyncChange?.(false);
-  }
-}
-
-    return true;
-
   } catch (e) {
-    console.warn("Cloud sync failed:", e);
+    console.warn("Cloud load failed:", e);
     return false;
   } finally {
     this.isSyncing = false;
     this.onSyncChange?.(false);
   }
 }
-      
-      return false;
-    } catch (e) {
-      console.warn("Could not reach cloud storage:", e);
-      return false;
-    } finally {
-      this.isSyncing = false;
-      if (this.onSyncChange) this.onSyncChange(false);
-    }
-  }
 
   restore(dataString: string): boolean {
     try {
