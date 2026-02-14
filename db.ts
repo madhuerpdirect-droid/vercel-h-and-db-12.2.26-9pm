@@ -174,34 +174,39 @@ if (!response.ok) throw new Error('Cloud sync failed');
   }
 
   async loadCloudData(): Promise<boolean> {
-    const token = process.env.BLOB_READ_WRITE_TOKEN;
-    if (!navigator.onLine || !token) return false;
+  this.isSyncing = true;
+  this.onSyncChange?.(true);
 
-    this.isSyncing = true;
-    if (this.onSyncChange) this.onSyncChange(true);
+  try {
+    const response = await fetch('/api/sync');
+    if (!response.ok) throw new Error("Cloud fetch failed");
 
-    try {
-      const response = await fetch('/api/sync');
-if (!response.ok) throw new Error("Cloud fetch failed");
+    const result = await response.json();
+    const onlineData = result.data;
 
-const result = await response.json();
-const onlineData = result.data;
+    const localRaw = localStorage.getItem('mi_chit_db');
+    const localData = localRaw ? JSON.parse(localRaw) : null;
 
-if (!onlineData) return false;
-        const localDataRaw = localStorage.getItem('mi_chit_db');
-        const localData = localDataRaw ? JSON.parse(localDataRaw) : null;
-        
-        const onlineTime = new Date(onlineData.lastUpdated || 0).getTime();
-        const localTime = new Date(localData?.lastUpdated || 0).getTime();
-        
-        // Only overwrite if cloud data is actually newer or local is missing
-        if (onlineTime > localTime || !localData) {
-          this.deserialize(onlineData);
-          localStorage.setItem('mi_chit_db', JSON.stringify(onlineData));
-          this.isDirty = false;
-          if (this.onDirtyChange) this.onDirtyChange(false);
-          return true;
-        }
+    const onlineTime = new Date(onlineData?.lastUpdated || 0).getTime();
+    const localTime = new Date(localData?.lastUpdated || 0).getTime();
+
+    if (onlineData && (onlineTime > localTime || !localData)) {
+      this.deserialize(onlineData);
+      localStorage.setItem('mi_chit_db', JSON.stringify(onlineData));
+      this.isDirty = false;
+      this.onDirtyChange?.(false);
+    }
+
+    return true;
+
+  } catch (e) {
+    console.warn("Cloud sync failed:", e);
+    return false;
+  } finally {
+    this.isSyncing = false;
+    this.onSyncChange?.(false);
+  }
+}
       } else {
         // If file doesn't exist on cloud yet, push local data up
         await this.syncWithCloud();
