@@ -1,8 +1,12 @@
-import {
-  User, UserRole, ChitGroup, Member, GroupMembership,
-  InstallmentSchedule, Allotment, Payment, PaymentRequest,
-  MasterSettings, ChitStatus, PaymentStatus
+
+import { 
+  User, UserRole, ChitGroup, Member, GroupMembership, 
+  InstallmentSchedule, Allotment, Payment, PaymentRequest, 
+  MasterSettings, ChitStatus, PaymentStatus 
 } from './types';
+import { put, list } from '@vercel/blob';
+
+const CLOUD_FILENAME = 'bhadrakali_db.json';
 
 const INITIAL_USERS: User[] = [
   { userId: 'u1', name: 'Admin User', role: UserRole.ADMIN, username: 'admin', passwordHash: 'xdr5tgb', isActive: true },
@@ -27,41 +31,74 @@ class DB {
   private paymentRequests: PaymentRequest[] = [];
   private settings: MasterSettings = INITIAL_MASTER_SETTINGS;
   private lastUpdated: string = new Date(0).toISOString();
-
-  private isDirty = false;
-  private isSyncing = false;
-
+  
+  private isDirty: boolean = false;
+  private isSyncing: boolean = false;
+  private hasLoaded: boolean = false;
   private onDirtyChange?: (dirty: boolean) => void;
   private onSyncChange?: (syncing: boolean) => void;
 
+  private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
-    this.load();
-    if (!this.users.length) {
+    this.init();
+  }
+
+  private init() {
+    try {
+      this.load();
+      if (!this.users || this.users.length === 0) {
+        this.users = [...INITIAL_USERS];
+        this.saveLocal();
+      }
+      this.hasLoaded = true;
+    } catch (e) {
+      console.error("DB Init failed, resetting to defaults", e);
       this.users = [...INITIAL_USERS];
-      this.saveLocal();
+      this.hasLoaded = true;
     }
   }
 
-  setDirtyListener(cb: (d: boolean) => void) {
-    this.onDirtyChange = cb;
+  setDirtyListener(listener: (dirty: boolean) => void) {
+    this.onDirtyChange = listener;
   }
 
-  setSyncListener(cb: (s: boolean) => void) {
-    this.onSyncChange = cb;
+  setSyncListener(listener: (syncing: boolean) => void) {
+    this.onSyncChange = listener;
   }
 
-  private load() {
+  markDirty() {
+    this.isDirty = true;
+    this.saveLocal();
+    if (this.onDirtyChange) this.onDirtyChange(true);
+    
+    if (this.syncDebounceTimer) {
+      clearTimeout(this.syncDebounceTimer);
+    }
+    
+    this.syncDebounceTimer = setTimeout(() => {
+      this.syncWithCloud().catch(() => {});
+    }, 2000);
+  }
+
+  load() {
     const data = localStorage.getItem('mi_chit_db');
-    if (!data) return;
-    try {
-      const parsed = JSON.parse(data);
-      this.deserialize(parsed);
-    } catch {}
+    if (data && data !== "null" && data !== "undefined") {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed && typeof parsed === 'object') {
+          this.deserialize(parsed);
+        }
+      } catch (e) {
+        console.error("Corrupted local storage data", e);
+      }
+    }
   }
 
   private deserialize(parsed: any) {
+    if (!parsed) return;
     this.users = parsed.users || [];
-    this.chits = parsed.chits || [];
+    this.chits = (parsed.chits || []).map((c: any) => ({ ...c, status: c.status || ChitStatus.ACTIVE }));
     this.members = parsed.members || [];
     this.memberships = parsed.memberships || [];
     this.installments = parsed.installments || [];
@@ -72,8 +109,8 @@ class DB {
     this.lastUpdated = parsed.lastUpdated || new Date(0).toISOString();
   }
 
-  private serialize() {
-    return {
+  public getSerializedData() {
+    return JSON.stringify({
       users: this.users,
       chits: this.chits,
       members: this.members,
@@ -83,67 +120,314 @@ class DB {
       payments: this.payments,
       paymentRequests: this.paymentRequests,
       settings: this.settings,
-      lastUpdated: new Date().toISOString()
-    };
+      lastUpdated: this.lastUpdated
+    }, null, 2);
   }
 
-  private saveLocal() {
-    localStorage.setItem('mi_chit_db', JSON.stringify(this.serialize()));
+  saveLocal() {
+    try {
+      this.lastUpdated = new Date().toISOString();
+      const dataString = this.getSerializedData();
+      localStorage.setItem('mi_chit_db', dataString);
+      return true;
+    } catch (e) {
+      console.error("Critical: Local storage save failed.", e);
+      return false;
+    }
   }
 
-  markDirty() {
-    this.isDirty = true;
+  async save(): Promise<boolean> {
     this.saveLocal();
-    this.onDirtyChange?.(true);
+    return await this.syncWithCloud();
   }
 
   async syncWithCloud(): Promise<boolean> {
     if (!navigator.onLine) return false;
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!token) {
+      console.warn("Sync failed: BLOB_READ_WRITE_TOKEN not found in environment.");
+      return false;
+    }
 
     this.isSyncing = true;
-    this.onSyncChange?.(true);
-
+    if (this.onSyncChange) this.onSyncChange(true);
+    
     try {
-      const response = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.serialize())
+      const data = this.getSerializedData();
+      await put(CLOUD_FILENAME, data, {
+        access: 'public',
+        addRandomSuffix: false,
+        token: token
       });
-
-      if (!response.ok) throw new Error();
-
       this.isDirty = false;
-      this.onDirtyChange?.(false);
+      if (this.onDirtyChange) this.onDirtyChange(false);
+      localStorage.setItem('mi_chit_last_sync', new Date().toISOString());
       return true;
-
-    } catch {
+    } catch (error) {
+      console.error("Vercel Blob Sync failed:", error);
       return false;
     } finally {
       this.isSyncing = false;
-      this.onSyncChange?.(false);
+      if (this.onSyncChange) this.onSyncChange(false);
     }
   }
 
   async loadCloudData(): Promise<boolean> {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (!navigator.onLine || !token) return false;
+
+    this.isSyncing = true;
+    if (this.onSyncChange) this.onSyncChange(true);
+
     try {
-      const response = await fetch('/api/sync');
-      if (!response.ok) return false;
+      const { blobs } = await list({ token });
+      const dbBlob = blobs.find(b => b.pathname === CLOUD_FILENAME);
+      if (dbBlob) {
+        const response = await fetch(`${dbBlob.url}?t=${Date.now()}`);
+        if (!response.ok) throw new Error("Cloud fetch failed");
+        const onlineData = await response.json();
+        const localDataRaw = localStorage.getItem('mi_chit_db');
+        const localData = localDataRaw ? JSON.parse(localDataRaw) : null;
+        
+        const onlineTime = new Date(onlineData.lastUpdated || 0).getTime();
+        const localTime = new Date(localData?.lastUpdated || 0).getTime();
+        
+        // Only overwrite if cloud data is actually newer or local is missing
+        if (onlineTime > localTime || !localData) {
+          this.deserialize(onlineData);
+          localStorage.setItem('mi_chit_db', JSON.stringify(onlineData));
+          this.isDirty = false;
+          if (this.onDirtyChange) this.onDirtyChange(false);
+          return true;
+        }
+      } else {
+        // If file doesn't exist on cloud yet, push local data up
+        await this.syncWithCloud();
+      }
+      return false;
+    } catch (e) {
+      console.warn("Could not reach cloud storage:", e);
+      return false;
+    } finally {
+      this.isSyncing = false;
+      if (this.onSyncChange) this.onSyncChange(false);
+    }
+  }
 
-      const result = await response.json();
-      if (!result.data) return false;
-
-      this.deserialize(result.data);
-      this.saveLocal();
-      return true;
-
-    } catch {
+  restore(dataString: string): boolean {
+    try {
+      const parsed = JSON.parse(dataString);
+      if (parsed && typeof parsed === 'object') {
+        this.deserialize(parsed);
+        this.markDirty();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("Restore failed", e);
       return false;
     }
   }
 
-  getChits = () => this.chits;
+  updateSettings(data: Partial<MasterSettings>) {
+    this.settings = { ...this.settings, ...data };
+    this.markDirty();
+  }
+
+  getUsers = () => this.users || [];
+  getChits = () => this.chits || [];
+  getMembers = () => this.members || [];
+  getMemberships = () => this.memberships || [];
+  getInstallments = () => this.installments || [];
+  getAllotments = () => this.allotments || [];
+  getPayments = () => this.payments || [];
+  getPaymentRequests = () => this.paymentRequests || [];
+  getSettings = () => this.settings || INITIAL_MASTER_SETTINGS;
+  getDirtyStatus = () => this.isDirty;
+  getSyncStatus = () => this.isSyncing;
+
+  addMember(member: Member) {
+    this.members.push(member);
+    this.markDirty();
+  }
+
+  updateMember(memberId: string, data: Partial<Member>, targetGroupId?: string) {
+    const idx = this.members.findIndex(m => m.memberId === memberId);
+    if (idx !== -1) {
+      this.members[idx] = { ...this.members[idx], ...data };
+      if (targetGroupId) {
+        const msIdx = this.memberships.findIndex(m => m.memberId === memberId);
+        if (msIdx !== -1) {
+          const oldGroupId = this.memberships[msIdx].chitGroupId;
+          if (oldGroupId !== targetGroupId) {
+            const chit = this.chits.find(c => c.chitGroupId === targetGroupId);
+            if (chit && chit.maxMembers) {
+              const currentCount = this.memberships.filter(m => m.chitGroupId === targetGroupId).length;
+              if (currentCount >= chit.maxMembers) return; 
+            }
+            this.memberships[msIdx].chitGroupId = targetGroupId;
+            this.installments = this.installments.filter(i => !(i.memberId === memberId && i.chitGroupId === oldGroupId));
+            if (chit) {
+              for (let i = 1; i <= chit.totalMonths; i++) {
+                const date = new Date(chit.startMonth);
+                date.setMonth(date.getMonth() + i - 1);
+                this.installments.push({
+                  scheduleId: `s_${this.memberships[msIdx].groupMembershipId}_${i}`,
+                  chitGroupId: targetGroupId,
+                  memberId: memberId,
+                  monthNo: i,
+                  dueDate: date.toISOString().split('T')[0],
+                  dueAmount: chit.monthlyInstallmentRegular,
+                  paidAmount: 0,
+                  status: PaymentStatus.PENDING,
+                  isPrizeMonth: false
+                });
+              }
+            }
+          }
+        }
+      }
+      this.markDirty();
+    }
+  }
+
   addChit(chit: ChitGroup) {
     this.chits.push(chit);
+    this.markDirty();
+  }
+
+  updateChit(chitGroupId: string, data: Partial<ChitGroup>) {
+    const idx = this.chits.findIndex(c => c.chitGroupId === chitGroupId);
+    if (idx !== -1) {
+      this.chits[idx] = { ...this.chits[idx], ...data };
+      this.markDirty();
+    }
+  }
+
+  addMembership(membership: GroupMembership) {
+    const exists = this.memberships.find(m => m.chitGroupId === membership.chitGroupId && m.memberId === membership.memberId);
+    if (exists) return;
+    
+    const chit = this.chits.find(c => c.chitGroupId === membership.chitGroupId);
+    if (chit && chit.maxMembers) {
+      const currentCount = this.memberships.filter(m => m.chitGroupId === membership.chitGroupId).length;
+      if (currentCount >= chit.maxMembers) return; 
+    }
+
+    this.memberships.push(membership);
+    if (chit) {
+      for (let i = 1; i <= chit.totalMonths; i++) {
+        const date = new Date(chit.startMonth);
+        date.setMonth(date.getMonth() + i - 1);
+        this.installments.push({
+          scheduleId: `s_${membership.groupMembershipId}_${i}`,
+          chitGroupId: membership.chitGroupId,
+          memberId: membership.memberId,
+          monthNo: i,
+          dueDate: date.toISOString().split('T')[0],
+          dueAmount: chit.monthlyInstallmentRegular,
+          paidAmount: 0,
+          status: PaymentStatus.PENDING,
+          isPrizeMonth: false
+        });
+      }
+    }
+    this.markDirty();
+  }
+
+  bulkAddMembers(membersList: { member: Member, chitGroupId?: string }[]) {
+    const now = Date.now();
+    membersList.forEach((item, index) => {
+      if (item.chitGroupId) {
+        const chit = this.chits.find(c => c.chitGroupId === item.chitGroupId);
+        if (chit && chit.maxMembers) {
+          const currentCount = this.memberships.filter(m => m.chitGroupId === item.chitGroupId).length;
+          if (currentCount >= chit.maxMembers) return; 
+        }
+      }
+
+      this.members.push(item.member);
+      if (item.chitGroupId) {
+        const groupMemberships = this.memberships.filter(m => m.chitGroupId === item.chitGroupId);
+        const nextToken = groupMemberships.length > 0 ? Math.max(...groupMemberships.map(m => m.tokenNo)) + 1 : 1;
+        this.addMembership({
+          groupMembershipId: `gm_bulk_${now}_${index}_${Math.floor(Math.random() * 1000)}`,
+          chitGroupId: item.chitGroupId,
+          memberId: item.member.memberId,
+          tokenNo: nextToken,
+          joinedOn: new Date().toISOString().split('T')[0]
+        });
+      }
+    });
+    this.markDirty();
+  }
+
+  confirmAllotment(allotment: Allotment) {
+    this.allotments.push(allotment);
+    const chit = this.chits.find(c => c.chitGroupId === allotment.chitGroupId);
+    if (!chit) return;
+    const currentSchedule = this.installments.find(s => s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo === allotment.monthNo);
+    if (currentSchedule) currentSchedule.isPrizeMonth = true;
+    this.installments.forEach(s => {
+      if (s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo > allotment.monthNo) {
+        s.dueAmount = chit.monthlyInstallmentAllotted;
+      }
+    });
+    this.markDirty();
+  }
+
+  updateAllotment(allotmentId: string, data: Partial<Allotment>) {
+    const idx = this.allotments.findIndex(a => a.allotmentId === allotmentId);
+    if (idx === -1) return;
+    const oldAllotment = this.allotments[idx];
+    const chit = this.chits.find(c => c.chitGroupId === oldAllotment.chitGroupId);
+    if (!chit) return;
+
+    this.installments.forEach(s => {
+      if (s.chitGroupId === oldAllotment.chitGroupId && s.memberId === oldAllotment.memberId) {
+        if (s.monthNo === oldAllotment.monthNo) s.isPrizeMonth = false;
+        if (s.monthNo > oldAllotment.monthNo) s.dueAmount = chit.monthlyInstallmentRegular;
+      }
+    });
+
+    this.allotments[idx] = { ...oldAllotment, ...data };
+    const newAllotment = this.allotments[idx];
+
+    this.installments.forEach(s => {
+      if (s.chitGroupId === newAllotment.chitGroupId && s.memberId === newAllotment.memberId) {
+        if (s.monthNo === newAllotment.monthNo) s.isPrizeMonth = true;
+        if (s.monthNo > newAllotment.monthNo) s.dueAmount = chit.monthlyInstallmentAllotted;
+      }
+    });
+    this.markDirty();
+  }
+
+  revokeAllotment(allotmentId: string) {
+    const idx = this.allotments.findIndex(a => a.allotmentId === allotmentId);
+    if (idx === -1) return;
+    const allotment = this.allotments[idx];
+    allotment.revoked = true;
+    allotment.isConfirmed = false;
+    const chit = this.chits.find(c => c.chitGroupId === allotment.chitGroupId);
+    if (!chit) return;
+    const currentSchedule = this.installments.find(s => s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo === allotment.monthNo);
+    if (currentSchedule) currentSchedule.isPrizeMonth = false;
+    this.installments.forEach(s => {
+      if (s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo > allotment.monthNo) {
+        s.dueAmount = chit.monthlyInstallmentRegular;
+      }
+    });
+    this.markDirty();
+  }
+
+  addPayment(payment: Payment) {
+    this.payments.push(payment);
+    const schedule = this.installments.find(s => s.chitGroupId === payment.chitGroupId && s.memberId === payment.memberId && s.monthNo === payment.monthNo);
+    if (schedule) {
+      schedule.paidAmount += payment.paidAmount;
+      schedule.paidDate = payment.paymentDate;
+      schedule.status = schedule.paidAmount >= schedule.dueAmount ? PaymentStatus.PAID : PaymentStatus.PARTIAL;
+    }
     this.markDirty();
   }
 }
