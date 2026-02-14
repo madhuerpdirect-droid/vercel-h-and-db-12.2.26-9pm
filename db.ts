@@ -153,12 +153,13 @@ class DB {
     if (this.onSyncChange) this.onSyncChange(true);
     
     try {
-      const data = this.getSerializedData();
-      await put(CLOUD_FILENAME, data, {
-        access: 'public',
-        addRandomSuffix: false,
-        token: token
-      });
+      const response = await fetch('/api/sync', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: this.getSerializedData()
+});
+
+if (!response.ok) throw new Error('Cloud sync failed');
       this.isDirty = false;
       if (this.onDirtyChange) this.onDirtyChange(false);
       localStorage.setItem('mi_chit_last_sync', new Date().toISOString());
