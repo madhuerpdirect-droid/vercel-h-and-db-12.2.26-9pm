@@ -174,28 +174,42 @@ if (!response.ok) throw new Error('Cloud sync failed');
   }
 
   async loadCloudData(): Promise<boolean> {
+  if (!navigator.onLine) return false;
+
   this.isSyncing = true;
   this.onSyncChange?.(true);
 
   try {
     const response = await fetch('/api/sync');
-    if (!response.ok) throw new Error("Cloud fetch failed");
+    if (!response.ok) return false;
 
     const result = await response.json();
-    const onlineData = result.data;
+    if (!result.data) return false;
 
+    const onlineData = result.data;
     const localRaw = localStorage.getItem('mi_chit_db');
     const localData = localRaw ? JSON.parse(localRaw) : null;
 
-    const onlineTime = new Date(onlineData?.lastUpdated || 0).getTime();
+    const onlineTime = new Date(onlineData.lastUpdated || 0).getTime();
     const localTime = new Date(localData?.lastUpdated || 0).getTime();
 
-    if (onlineData && (onlineTime > localTime || !localData)) {
+    if (onlineTime > localTime || !localData) {
       this.deserialize(onlineData);
-      localStorage.setItem('mi_chit_db', JSON.stringify(onlineData));
+      this.saveLocal();
       this.isDirty = false;
       this.onDirtyChange?.(false);
+      return true;
     }
+
+    return false;
+
+  } catch {
+    return false;
+  } finally {
+    this.isSyncing = false;
+    this.onSyncChange?.(false);
+  }
+}
 
     return true;
 
