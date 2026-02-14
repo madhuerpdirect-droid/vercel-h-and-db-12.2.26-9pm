@@ -7,17 +7,31 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN as string;
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
 
   if (!token) {
-    return res.status(500).json({ error: "Missing BLOB_READ_WRITE_TOKEN" });
+    return res.status(500).json({ error: 'Missing BLOB_READ_WRITE_TOKEN' });
   }
 
   try {
-    if (req.method === 'POST') {
-      const data = req.body;
 
-      await put(CLOUD_FILENAME, JSON.stringify(data, null, 2), {
+    // ---------- SAVE (POST) ----------
+    if (req.method === 'POST') {
+
+      let bodyData;
+
+      // handle both string and object body safely
+      if (typeof req.body === 'string') {
+        bodyData = JSON.parse(req.body);
+      } else {
+        bodyData = req.body;
+      }
+
+      if (!bodyData) {
+        return res.status(400).json({ error: 'No data received' });
+      }
+
+      await put(CLOUD_FILENAME, JSON.stringify(bodyData, null, 2), {
         access: 'public',
         addRandomSuffix: false,
         token
@@ -26,6 +40,7 @@ export default async function handler(
       return res.status(200).json({ success: true });
     }
 
+    // ---------- LOAD (GET) ----------
     if (req.method === 'GET') {
       const { blobs } = await list({ token });
       const dbBlob = blobs.find(b => b.pathname === CLOUD_FILENAME);
@@ -40,10 +55,10 @@ export default async function handler(
       return res.status(200).json({ data: json });
     }
 
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json({ error: 'Method not allowed' });
 
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ error: "Sync failed" });
+  } catch (err) {
+    console.error('SYNC ERROR:', err);
+    return res.status(500).json({ error: 'Sync failed' });
   }
 }
