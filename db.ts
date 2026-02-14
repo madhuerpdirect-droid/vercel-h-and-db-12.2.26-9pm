@@ -140,7 +140,36 @@ class DB {
     this.saveLocal();
     return await this.syncWithCloud();
   }
+async syncWithCloud(): Promise<boolean> {
+  if (!navigator.onLine) return false;
 
+  this.isSyncing = true;
+  this.onSyncChange?.(true);
+
+  try {
+    const response = await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: this.getSerializedData()
+    });
+
+    if (!response.ok) throw new Error('Cloud sync failed');
+
+    this.isDirty = false;
+    this.onDirtyChange?.(false);
+    localStorage.setItem('mi_chit_last_sync', new Date().toISOString());
+
+    return true;
+
+  } catch (error) {
+    console.error("Cloud sync failed:", error);
+    return false;
+
+  } finally {
+    this.isSyncing = false;
+    this.onSyncChange?.(false);
+  }
+}
   async loadCloudData(): Promise<boolean> {
   if (!navigator.onLine) return false;
 
