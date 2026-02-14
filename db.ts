@@ -207,10 +207,7 @@ if (!response.ok) throw new Error('Cloud sync failed');
     this.onSyncChange?.(false);
   }
 }
-      } else {
-        // If file doesn't exist on cloud yet, push local data up
-        await this.syncWithCloud();
-      }
+      
       return false;
     } catch (e) {
       console.warn("Could not reach cloud storage:", e);
