@@ -181,12 +181,13 @@ if (!response.ok) throw new Error('Cloud sync failed');
     if (this.onSyncChange) this.onSyncChange(true);
 
     try {
-      const { blobs } = await list({ token });
-      const dbBlob = blobs.find(b => b.pathname === CLOUD_FILENAME);
-      if (dbBlob) {
-        const response = await fetch(`${dbBlob.url}?t=${Date.now()}`);
-        if (!response.ok) throw new Error("Cloud fetch failed");
-        const onlineData = await response.json();
+      const response = await fetch('/api/sync');
+if (!response.ok) throw new Error("Cloud fetch failed");
+
+const result = await response.json();
+const onlineData = result.data;
+
+if (!onlineData) return false;
         const localDataRaw = localStorage.getItem('mi_chit_db');
         const localData = localDataRaw ? JSON.parse(localDataRaw) : null;
         
