@@ -41,8 +41,20 @@ class DB {
   private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    this.init();
-  }
+  this.init();
+
+  // 🔵 Automatically try loading cloud data after init
+  setTimeout(() => {
+    this.loadCloudData().catch(() => {});
+  }, 1000);
+}constructor() {
+  this.init();
+
+  // 🔵 Automatically try loading cloud data after init
+  setTimeout(() => {
+    this.loadCloudData().catch(() => {});
+  }, 1000);
+}
 
   private init() {
     try {
