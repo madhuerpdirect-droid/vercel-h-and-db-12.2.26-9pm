@@ -53,18 +53,33 @@ await put(backupFileName, JSON.stringify(bodyData, null, 2), {
 
     // ---------- LOAD (GET) ----------
     if (req.method === 'GET') {
-      const { blobs } = await list({ token });
-      const dbBlob = blobs.find(b => b.pathname === CLOUD_FILENAME);
 
-      if (!dbBlob) {
-        return res.status(200).json({ data: null });
-      }
+  const { blobs } = await list({ token });
 
-      const response = await fetch(dbBlob.url);
-      const json = await response.json();
+  // Find main DB file
+  const dbBlob = blobs.find(b => b.pathname === CLOUD_FILENAME);
 
-      return res.status(200).json({ data: json });
-    }
+  let mainData = null;
+
+  if (dbBlob) {
+    const response = await fetch(dbBlob.url);
+    mainData = await response.json();
+  }
+
+  // Collect all backup files
+  const backups = blobs
+    .filter(b => b.pathname.startsWith('backup_'))
+    .map(b => ({
+      file: b.pathname,
+      url: b.url,
+      uploadedAt: b.uploadedAt
+    }));
+
+  return res.status(200).json({
+    data: mainData,
+    backups
+  });
+}
 
     return res.status(405).json({ error: 'Method not allowed' });
 
