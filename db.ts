@@ -147,10 +147,37 @@ async syncWithCloud(): Promise<boolean> {
   this.onSyncChange?.(true);
 
   try {
+    // First check cloud data
+    const cloudResponse = await fetch('/api/sync');
+    let cloudData: any = null;
+
+    if (cloudResponse.ok) {
+      const result = await cloudResponse.json();
+      cloudData = result.data;
+    }
+
+    const localData = JSON.parse(this.getSerializedData());
+
+    const localHasData =
+      (localData.members?.length || 0) > 0 ||
+      (localData.chits?.length || 0) > 0;
+
+    const cloudHasData =
+      cloudData &&
+      ((cloudData.members?.length || 0) > 0 ||
+       (cloudData.chits?.length || 0) > 0);
+
+    // 🚨 PROTECTION: do not overwrite cloud with empty local
+    if (!localHasData && cloudHasData) {
+      console.warn("Protected: Local empty, cloud has data. Skipping upload.");
+      return false;
+    }
+
+    // Upload to cloud
     const response = await fetch('/api/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: this.getSerializedData()
+      body: JSON.stringify(localData)
     });
 
     if (!response.ok) throw new Error('Cloud sync failed');
