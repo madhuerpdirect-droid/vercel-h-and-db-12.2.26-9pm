@@ -226,12 +226,16 @@ async syncWithCloud(): Promise<boolean> {
     const localTime = new Date(localData?.lastUpdated || 0).getTime();
 
     if (onlineTime > localTime || !localData) {
-      this.deserialize(onlineData);
-      this.saveLocal();
-      this.isDirty = false;
-      this.onDirtyChange?.(false);
-      return true;
-    }
+  this.deserialize(onlineData);
+  this.saveLocal();
+  this.isDirty = false;
+  this.onDirtyChange?.(false);
+
+  // 🔵 FORCE REFRESH
+  window.location.reload();
+
+  return true;
+}
 
     return false;
 
