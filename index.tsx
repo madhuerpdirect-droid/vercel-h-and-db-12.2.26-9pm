@@ -1,6 +1,6 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
+import { db } from './db'
+
+await db.loadCloudData();
 
 // Register Service Worker for PWA / Install to Home Screen
 if ('serviceWorker' in navigator) {
