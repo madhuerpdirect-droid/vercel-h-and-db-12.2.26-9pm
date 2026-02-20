@@ -43,10 +43,13 @@ class DB {
   constructor() {
   this.init();
 
-  // 🔵 Automatically try loading cloud data after init
-  setTimeout(() => {
-    this.loadCloudData().catch(() => {});
-  }, 1000);
+  this.loadCloudData()
+    .then((loaded) => {
+      if (loaded) {
+        console.log("Cloud data loaded successfully");
+      }
+    })
+    .catch(() => {});
 }
 
   private init() {
