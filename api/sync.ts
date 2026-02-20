@@ -31,11 +31,22 @@ export default async function handler(
         return res.status(400).json({ error: 'No data received' });
       }
 
-      await put(CLOUD_FILENAME, JSON.stringify(bodyData, null, 2), {
-        access: 'public',
-        addRandomSuffix: false,
-        token
-      });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+const backupFileName = `backup_${timestamp}.json`;
+
+// 1️⃣ Save main DB file
+await put(CLOUD_FILENAME, JSON.stringify(bodyData, null, 2), {
+  access: 'public',
+  addRandomSuffix: false,
+  token
+});
+
+// 2️⃣ Save backup copy
+await put(backupFileName, JSON.stringify(bodyData, null, 2), {
+  access: 'public',
+  addRandomSuffix: false,
+  token
+});
 
       return res.status(200).json({ success: true });
     }
