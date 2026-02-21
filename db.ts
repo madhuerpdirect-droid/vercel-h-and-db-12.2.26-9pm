@@ -208,22 +208,26 @@ class DB {
 
   addMember(member: Member) {
 
+  const cleanMobile = String(member.mobile)
+    .replace(/\D/g, '')      // remove non-numbers
+    .padStart(10, '')        // prevent trimming
+    .slice(0, 10);           // ensure max 10 digits
+
   const safeMember: Member = {
     ...member,
-    mobile: String(member.mobile).replace(/\D/g, '').slice(0, 10) // keep clean 10 digits
+    mobile: cleanMobile
   };
 
   this.members.push(safeMember);
   this.markDirty();
 }
-
   updateMember(memberId: string, data: Partial<Member>) {
 
   const idx = this.members.findIndex(m => m.memberId === memberId);
 
   if (idx !== -1) {
 
-    const updatedMobile = data.mobile !== undefined
+    const updatedMobile = data.mobile
       ? String(data.mobile).replace(/\D/g, '').slice(0, 10)
       : this.members[idx].mobile;
 
