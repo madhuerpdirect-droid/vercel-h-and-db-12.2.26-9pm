@@ -8,7 +8,7 @@ import Reports from './pages/Reports';
 import MemberPortal from './pages/MemberPortal';
 import AdminWrapper from './components/AdminWrapper';
 import { User, UserRole, Member, ChitStatus } from './types';
-import { db } from './db';
+import db from './db';
 import { decryptToken } from './services/authService';
 
 const App: React.FC = () => {
