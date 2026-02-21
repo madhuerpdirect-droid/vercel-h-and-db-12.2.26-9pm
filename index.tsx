@@ -1,9 +1,11 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
-import { db } from './db'
+import { getDB } from './db'
 
 async function startApp() {
+  const db = getDB()
+
   try {
     await db.loadCloudData()
   } catch (e) {
