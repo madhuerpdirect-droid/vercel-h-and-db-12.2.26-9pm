@@ -1,5 +1,7 @@
 
-import { db } from '../db';
+import { getDB } from '../db';
+
+const db = getDB();
 
 /**
  * Core business rule 4.2: Central installment calculation
