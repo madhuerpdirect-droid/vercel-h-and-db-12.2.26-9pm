@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { db } from '../db';
+import db from '../db';
 import { getInstallmentStatus } from '../services/logicService';
 import { sendPaymentLink, sendReceipt } from '../services/whatsappService';
 
