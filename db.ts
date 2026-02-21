@@ -17,6 +17,27 @@ const INITIAL_MASTER_SETTINGS: MasterSettings = {
 };
 
 class DB {
+
+  // --- Required empty functions to prevent crash ---
+
+  setDirtyListener(listener: (dirty: boolean) => void) {
+    // empty function to prevent crash
+  }
+
+  setSyncListener(listener: (syncing: boolean) => void) {
+    // empty function to prevent crash
+  }
+
+  async syncWithCloud(): Promise<boolean> {
+    return false;
+  }
+
+  async loadCloudData(): Promise<boolean> {
+    return false;
+  }
+
+  // --- Existing properties ---
+
   private users: User[] = [];
   private chits: ChitGroup[] = [];
   private members: Member[] = [];
