@@ -466,4 +466,11 @@ async syncWithCloud(): Promise<boolean> {
   }
 }
 
-export const db = new DB();
+let dbInstance: DB | null = null;
+
+export function getDB() {
+  if (!dbInstance) {
+    dbInstance = new DB();
+  }
+  return dbInstance;
+}
