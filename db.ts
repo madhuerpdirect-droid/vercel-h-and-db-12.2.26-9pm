@@ -72,6 +72,8 @@ class DB {
   }
 
   private deserialize(parsed: any) {
+    if (!parsed) return;
+
     this.users = parsed.users || [];
     this.chits = parsed.chits || [];
     this.members = parsed.members || [];
@@ -176,7 +178,7 @@ class DB {
       if (!localData || onlineTime > localTime) {
         this.deserialize(onlineData);
         this.saveLocal();
-        this.onDirtyChange?.(false); // 🔥 THIS triggers UI update
+        this.onDirtyChange?.(false);
         return true;
       }
 
@@ -257,14 +259,9 @@ export function getDB() {
 }
 
 const db = createDBInstance();
-
-export function getDB() {
-  return createDBInstance();
-}
-
 export default db;
 
-// 🔥 DEBUG ONLY – REMOVE AFTER TESTING
+// 🔥 DEBUG ONLY – REMOVE LATER
 if (typeof window !== 'undefined') {
   (window as any).db = db;
-};
+}
