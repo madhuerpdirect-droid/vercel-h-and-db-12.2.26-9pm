@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { db } from '../db';
+import db from '../db';
 
 interface Props {
   children: React.ReactNode;
