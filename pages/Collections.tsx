@@ -6,44 +6,66 @@ import db from '../db';
 
 const Collections: React.FC = () => {
 
-  // 🔥 Real reactive state
-  const [chits, setChits] = useState(db.getChits());
-  const [members, setMembers] = useState(db.getMembers());
-  const [memberships, setMemberships] = useState(db.getMemberships());
+  /* ================= STATE ================= */
+
+  const [chits, setChits] = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
+  const [memberships, setMemberships] = useState<any[]>([]);
 
   const [selectedChit, setSelectedChit] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState(1);
   const [showCollectDialog, setShowCollectDialog] = useState<any>(null);
 
-  // 🔥 Reload data from DB
+  /* ================= LOAD DATA ================= */
+
   const loadData = () => {
     setChits([...db.getChits()]);
     setMembers([...db.getMembers()]);
     setMemberships([...db.getMemberships()]);
   };
 
-  // 🔥 Listen for DB updates (sync or changes)
+  /* ================= DB LISTENERS ================= */
+
   useEffect(() => {
+
     loadData();
 
+    // 🔥 Refresh on local changes
     db.setDirtyListener(() => {
       loadData();
     });
 
+    // 🔥 Refresh after sync completes
+    db.setSyncListener((syncing) => {
+      if (!syncing) {
+        loadData();
+      }
+    });
+
   }, []);
 
-  // 🔥 Set first chit automatically after load
+  /* ================= ENSURE VALID SELECTED CHIT ================= */
+
   useEffect(() => {
-    if (chits.length > 0 && !selectedChit) {
-      setSelectedChit(chits[0].chitGroupId);
+    if (chits.length > 0) {
+
+      const exists = chits.some(c => c.chitGroupId === selectedChit);
+
+      if (!selectedChit || !exists) {
+        setSelectedChit(chits[0].chitGroupId);
+      }
     }
-  }, [chits]);
+  }, [chits, selectedChit]);
+
+  /* ================= DERIVED ================= */
 
   const currentChit = chits.find(c => c.chitGroupId === selectedChit);
 
   const filteredMemberships = memberships.filter(
     m => m.chitGroupId === selectedChit
   );
+
+  /* ================= COLLECT HANDLER ================= */
 
   const handleCollect = (formData: any) => {
     const { memberId, amount, mode, ref } = formData;
@@ -77,12 +99,15 @@ const Collections: React.FC = () => {
     setShowCollectDialog(null);
   };
 
+  /* ================= UI ================= */
+
   return (
     <div className="space-y-6 animate-in">
 
       {/* Filters */}
       <div className="ms-bg-card p-4 rounded border ms-border ms-shadow flex flex-col md:flex-row items-stretch md:items-end gap-4 mx-0">
 
+        {/* Group Select */}
         <div className="flex flex-col flex-1">
           <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">
             Select Group
@@ -100,6 +125,7 @@ const Collections: React.FC = () => {
           </select>
         </div>
 
+        {/* Month Select */}
         <div className="flex flex-col w-full md:w-32">
           <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">
             Month
@@ -122,14 +148,17 @@ const Collections: React.FC = () => {
 
       </div>
 
-      {/* Example Debug Output (Remove After Testing) */}
+      {/* Debug fallback */}
       {filteredMemberships.length === 0 && (
         <div className="text-center text-gray-500 text-sm">
           No memberships found for this group.
         </div>
       )}
 
-      {/* 🔥 Your existing table UI should use filteredMemberships instead of memberships */}
+      {/* 🔥 IMPORTANT:
+         Your table should use filteredMemberships
+         NOT memberships
+      */}
 
     </div>
   );
