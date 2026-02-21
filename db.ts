@@ -257,4 +257,14 @@ export function getDB() {
 }
 
 const db = createDBInstance();
+
+export function getDB() {
+  return createDBInstance();
+}
+
 export default db;
+
+// 🔥 DEBUG ONLY – REMOVE AFTER TESTING
+if (typeof window !== 'undefined') {
+  (window as any).db = db;
+};
