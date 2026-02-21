@@ -1,41 +1,52 @@
 import React, { useState, useEffect } from 'react';
-import { PaymentStatus, PaymentMode } from '../types';
+import { PaymentMode } from '../types';
 import { getInstallmentStatus } from '../services/logicService';
 import { sendPaymentLink, sendReceipt } from '../services/whatsappService';
 import db from '../db';
 
 const Collections: React.FC = () => {
 
-  // 🔥 Refresh trigger for DB updates
-  const [refresh, setRefresh] = useState(0);
+  // 🔥 Real reactive state
+  const [chits, setChits] = useState(db.getChits());
+  const [members, setMembers] = useState(db.getMembers());
+  const [memberships, setMemberships] = useState(db.getMemberships());
 
-  // 🔥 Listen for DB changes (sync / dirty)
-  useEffect(() => {
-    db.setDirtyListener(() => {
-      setRefresh(prev => prev + 1);
-    });
-  }, []);
-
-  // 🔥 Re-evaluate DB data whenever refresh changes
-  const chits = db.getChits();
   const [selectedChit, setSelectedChit] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState(1);
   const [showCollectDialog, setShowCollectDialog] = useState<any>(null);
 
-  // 🔥 Ensure selectedChit updates when chits load from cloud
+  // 🔥 Reload data from DB
+  const loadData = () => {
+    setChits([...db.getChits()]);
+    setMembers([...db.getMembers()]);
+    setMemberships([...db.getMemberships()]);
+  };
+
+  // 🔥 Listen for DB updates (sync or changes)
+  useEffect(() => {
+    loadData();
+
+    db.setDirtyListener(() => {
+      loadData();
+    });
+
+  }, []);
+
+  // 🔥 Set first chit automatically after load
   useEffect(() => {
     if (chits.length > 0 && !selectedChit) {
       setSelectedChit(chits[0].chitGroupId);
     }
-  }, [chits, selectedChit]);
+  }, [chits]);
 
   const currentChit = chits.find(c => c.chitGroupId === selectedChit);
-  const memberships = db.getMemberships().filter(m => m.chitGroupId === selectedChit);
-  const members = db.getMembers();
+
+  const filteredMemberships = memberships.filter(
+    m => m.chitGroupId === selectedChit
+  );
 
   const handleCollect = (formData: any) => {
     const { memberId, amount, mode, ref } = formData;
-    const member = members.find(m => m.memberId === memberId);
 
     db.addPayment({
       paymentId: `pay_${Date.now()}`,
@@ -48,6 +59,8 @@ const Collections: React.FC = () => {
       referenceNo: ref,
       collectedBy: 'admin'
     });
+
+    const member = members.find(m => m.memberId === memberId);
 
     if (member && currentChit) {
       sendReceipt(
@@ -109,7 +122,14 @@ const Collections: React.FC = () => {
 
       </div>
 
-      {/* 🔥 Your existing table + mobile UI can remain exactly same below */}
+      {/* Example Debug Output (Remove After Testing) */}
+      {filteredMemberships.length === 0 && (
+        <div className="text-center text-gray-500 text-sm">
+          No memberships found for this group.
+        </div>
+      )}
+
+      {/* 🔥 Your existing table UI should use filteredMemberships instead of memberships */}
 
     </div>
   );
