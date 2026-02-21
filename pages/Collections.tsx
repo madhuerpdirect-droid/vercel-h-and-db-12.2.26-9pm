@@ -1,15 +1,33 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PaymentStatus, PaymentMode } from '../types';
 import { getInstallmentStatus } from '../services/logicService';
 import { sendPaymentLink, sendReceipt } from '../services/whatsappService';
-import db from '../db'; // ✅ default import (important)
+import db from '../db';
 
 const Collections: React.FC = () => {
 
+  // 🔥 Refresh trigger for DB updates
+  const [refresh, setRefresh] = useState(0);
+
+  // 🔥 Listen for DB changes (sync / dirty)
+  useEffect(() => {
+    db.setDirtyListener(() => {
+      setRefresh(prev => prev + 1);
+    });
+  }, []);
+
+  // 🔥 Re-evaluate DB data whenever refresh changes
   const chits = db.getChits();
-  const [selectedChit, setSelectedChit] = useState(chits[0]?.chitGroupId || '');
+  const [selectedChit, setSelectedChit] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState(1);
   const [showCollectDialog, setShowCollectDialog] = useState<any>(null);
+
+  // 🔥 Ensure selectedChit updates when chits load from cloud
+  useEffect(() => {
+    if (chits.length > 0 && !selectedChit) {
+      setSelectedChit(chits[0].chitGroupId);
+    }
+  }, [chits, selectedChit]);
 
   const currentChit = chits.find(c => c.chitGroupId === selectedChit);
   const memberships = db.getMemberships().filter(m => m.chitGroupId === selectedChit);
@@ -91,12 +109,7 @@ const Collections: React.FC = () => {
 
       </div>
 
-      {/* Desktop + Mobile content unchanged */}
-      {/* 🔥 IMPORTANT:
-         Since your UI is large and already correct,
-         everything below remains exactly same.
-         No logic changes.
-      */}
+      {/* 🔥 Your existing table + mobile UI can remain exactly same below */}
 
     </div>
   );
