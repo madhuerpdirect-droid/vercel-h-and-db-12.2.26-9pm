@@ -1,6 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { db } from '../db';
+import { getDB } from '../db';
+
+const db = getDB();
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const Dashboard: React.FC = () => {
