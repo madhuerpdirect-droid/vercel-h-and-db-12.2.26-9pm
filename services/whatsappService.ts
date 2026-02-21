@@ -1,5 +1,7 @@
 
-import { db } from '../db';
+import { getDB } from '../db';
+
+const db = getDB();
 import { getInstallmentAmount } from './logicService';
 import { generateMagicLink } from './authService';
 
