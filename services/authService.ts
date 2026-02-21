@@ -3,7 +3,9 @@
  * Simple obfuscation service for Secure Magic Links
  * Uses Base64 + XOR with a secret key from environment variables
  */
-import { db } from '../db';
+import { getDB } from '../db';
+
+const db = getDB();
 
 const SECRET_KEY = process.env.API_KEY || 'bhadrakali-default-salt';
 
