@@ -124,6 +124,12 @@ class DB {
     }, 1500);
   }
 
+  /* 🔥 THIS WAS MISSING */
+  async save(): Promise<boolean> {
+    this.saveLocal();
+    return await this.syncWithCloud();
+  }
+
   async syncWithCloud(): Promise<boolean> {
     if (typeof window === 'undefined') return false;
     if (!navigator.onLine) return false;
