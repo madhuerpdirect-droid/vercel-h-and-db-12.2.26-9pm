@@ -4,7 +4,7 @@ import { getDB } from '../db';
 const db = getDB();
 
 /**
- * Core business rule 4.2: Central installment calculation
+ * Core business rule 4.2: Central installment calculation.
  */
 export function getInstallmentAmount(chitGroupId: string, memberId: string, monthNo: number): number {
   const chit = db.getChits().find(c => c.chitGroupId === chitGroupId);
