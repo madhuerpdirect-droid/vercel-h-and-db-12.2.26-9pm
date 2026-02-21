@@ -207,17 +207,35 @@ class DB {
   /* ================= CRUD ================= */
 
   addMember(member: Member) {
-    this.members.push(member);
-    this.markDirty();
-  }
+
+  const safeMember: Member = {
+    ...member,
+    mobile: String(member.mobile).replace(/\D/g, '').slice(0, 10) // keep clean 10 digits
+  };
+
+  this.members.push(safeMember);
+  this.markDirty();
+}
 
   updateMember(memberId: string, data: Partial<Member>) {
-    const idx = this.members.findIndex(m => m.memberId === memberId);
-    if (idx !== -1) {
-      this.members[idx] = { ...this.members[idx], ...data };
-      this.markDirty();
-    }
+
+  const idx = this.members.findIndex(m => m.memberId === memberId);
+
+  if (idx !== -1) {
+
+    const updatedMobile = data.mobile !== undefined
+      ? String(data.mobile).replace(/\D/g, '').slice(0, 10)
+      : this.members[idx].mobile;
+
+    this.members[idx] = {
+      ...this.members[idx],
+      ...data,
+      mobile: updatedMobile
+    };
+
+    this.markDirty();
   }
+}
 
   addChit(chit: ChitGroup) {
     this.chits.push(chit);
