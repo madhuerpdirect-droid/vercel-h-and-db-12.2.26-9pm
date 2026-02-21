@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PaymentMode } from '../types';
-import { sendReceipt } from '../services/whatsappService';
+import { sendPaymentLink, sendReceipt } from '../services/whatsappService';
 import db from '../db';
 
 const Collections: React.FC = () => {
@@ -62,7 +62,7 @@ const Collections: React.FC = () => {
       chitGroupId: selectedChit,
       memberId,
       monthNo: selectedMonth,
-      paidAmount: 0, // adjust if needed
+      paidAmount: 0,
       paymentDate: new Date().toISOString().split('T')[0],
       paymentMode: PaymentMode.CASH,
       referenceNo: '',
@@ -82,6 +82,28 @@ const Collections: React.FC = () => {
         0
       );
     }
+  };
+
+  /* ================= WHATSAPP REMINDER ================= */
+
+  const handleReminder = (memberId: string) => {
+
+    const member = members.find(m => m.memberId === memberId);
+
+    if (!member || !currentChit) return;
+
+    // You can adjust amount if needed
+    const amount = 0;
+
+    sendPaymentLink(
+      currentChit.upiId || '',
+      member.mobile,
+      member.name,
+      currentChit.name,
+      selectedMonth,
+      amount,
+      member.memberId
+    );
   };
 
   /* ================= UI ================= */
@@ -163,13 +185,24 @@ const Collections: React.FC = () => {
                     <td className="py-2">{member.name}</td>
                     <td className="py-2">{member.mobile}</td>
                     <td className="py-2">{membership.tokenNo}</td>
-                    <td className="py-2">
+                    <td className="py-2 flex gap-2">
+
+                      {/* Collect */}
                       <button
                         onClick={() => handleCollect(member.memberId)}
                         className="px-3 py-1 bg-green-600 text-white rounded text-xs"
                       >
                         Collect
                       </button>
+
+                      {/* WhatsApp Reminder */}
+                      <button
+                        onClick={() => handleReminder(member.memberId)}
+                        className="px-3 py-1 bg-blue-600 text-white rounded text-xs"
+                      >
+                        Send Reminder
+                      </button>
+
                     </td>
                   </tr>
                 );
