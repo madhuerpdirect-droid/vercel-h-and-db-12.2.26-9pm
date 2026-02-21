@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PaymentMode } from '../types';
-import { getInstallmentStatus } from '../services/logicService';
-import { sendPaymentLink, sendReceipt } from '../services/whatsappService';
+import { sendReceipt } from '../services/whatsappService';
 import db from '../db';
 
 const Collections: React.FC = () => {
@@ -14,7 +13,6 @@ const Collections: React.FC = () => {
 
   const [selectedChit, setSelectedChit] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState(1);
-  const [showCollectDialog, setShowCollectDialog] = useState<any>(null);
 
   /* ================= LOAD DATA ================= */
 
@@ -24,31 +22,21 @@ const Collections: React.FC = () => {
     setMemberships([...db.getMemberships()]);
   };
 
-  /* ================= DB LISTENERS ================= */
-
   useEffect(() => {
-
     loadData();
 
-    // 🔥 Refresh on local changes
-    db.setDirtyListener(() => {
-      loadData();
-    });
+    db.setDirtyListener(() => loadData());
 
-    // 🔥 Refresh after sync completes
     db.setSyncListener((syncing) => {
-      if (!syncing) {
-        loadData();
-      }
+      if (!syncing) loadData();
     });
 
   }, []);
 
-  /* ================= ENSURE VALID SELECTED CHIT ================= */
+  /* ================= ENSURE VALID CHIT ================= */
 
   useEffect(() => {
     if (chits.length > 0) {
-
       const exists = chits.some(c => c.chitGroupId === selectedChit);
 
       if (!selectedChit || !exists) {
@@ -65,20 +53,19 @@ const Collections: React.FC = () => {
     m => m.chitGroupId === selectedChit
   );
 
-  /* ================= COLLECT HANDLER ================= */
+  /* ================= PAYMENT ================= */
 
-  const handleCollect = (formData: any) => {
-    const { memberId, amount, mode, ref } = formData;
+  const handleCollect = (memberId: string) => {
 
     db.addPayment({
       paymentId: `pay_${Date.now()}`,
       chitGroupId: selectedChit,
       memberId,
       monthNo: selectedMonth,
-      paidAmount: Number(amount),
+      paidAmount: 0, // adjust if needed
       paymentDate: new Date().toISOString().split('T')[0],
-      paymentMode: mode as PaymentMode,
-      referenceNo: ref,
+      paymentMode: PaymentMode.CASH,
+      referenceNo: '',
       collectedBy: 'admin'
     });
 
@@ -92,11 +79,9 @@ const Collections: React.FC = () => {
         member.name,
         currentChit.name,
         selectedMonth,
-        Number(amount)
+        0
       );
     }
-
-    setShowCollectDialog(null);
   };
 
   /* ================= UI ================= */
@@ -105,17 +90,17 @@ const Collections: React.FC = () => {
     <div className="space-y-6 animate-in">
 
       {/* Filters */}
-      <div className="ms-bg-card p-4 rounded border ms-border ms-shadow flex flex-col md:flex-row items-stretch md:items-end gap-4 mx-0">
+      <div className="ms-bg-card p-4 rounded border ms-border ms-shadow flex flex-col md:flex-row gap-4">
 
-        {/* Group Select */}
+        {/* Group */}
         <div className="flex flex-col flex-1">
-          <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+          <label className="text-xs font-bold text-gray-400 uppercase mb-1">
             Select Group
           </label>
           <select
             value={selectedChit}
             onChange={(e) => setSelectedChit(e.target.value)}
-            className="border ms-border p-2 rounded text-sm outline-none w-full bg-white"
+            className="border p-2 rounded text-sm bg-white"
           >
             {chits.map(c => (
               <option key={c.chitGroupId} value={c.chitGroupId}>
@@ -125,15 +110,15 @@ const Collections: React.FC = () => {
           </select>
         </div>
 
-        {/* Month Select */}
+        {/* Month */}
         <div className="flex flex-col w-full md:w-32">
-          <label className="text-[10px] font-bold text-gray-400 uppercase mb-1">
+          <label className="text-xs font-bold text-gray-400 uppercase mb-1">
             Month
           </label>
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(Number(e.target.value))}
-            className="border ms-border p-2 rounded text-sm outline-none w-full bg-white"
+            className="border p-2 rounded text-sm bg-white"
           >
             {Array.from(
               { length: currentChit?.totalMonths || 0 },
@@ -148,17 +133,51 @@ const Collections: React.FC = () => {
 
       </div>
 
-      {/* Debug fallback */}
-      {filteredMemberships.length === 0 && (
+      {/* MEMBERS TABLE */}
+      {filteredMemberships.length === 0 ? (
         <div className="text-center text-gray-500 text-sm">
           No memberships found for this group.
         </div>
-      )}
+      ) : (
+        <div className="ms-bg-card p-4 rounded border ms-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left border-b">
+                <th className="py-2">Member Name</th>
+                <th className="py-2">Mobile</th>
+                <th className="py-2">Token</th>
+                <th className="py-2">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMemberships.map(membership => {
 
-      {/* 🔥 IMPORTANT:
-         Your table should use filteredMemberships
-         NOT memberships
-      */}
+                const member = members.find(
+                  mem => mem.memberId === membership.memberId
+                );
+
+                if (!member) return null;
+
+                return (
+                  <tr key={membership.groupMembershipId} className="border-b">
+                    <td className="py-2">{member.name}</td>
+                    <td className="py-2">{member.mobile}</td>
+                    <td className="py-2">{membership.tokenNo}</td>
+                    <td className="py-2">
+                      <button
+                        onClick={() => handleCollect(member.memberId)}
+                        className="px-3 py-1 bg-green-600 text-white rounded text-xs"
+                      >
+                        Collect
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
     </div>
   );
