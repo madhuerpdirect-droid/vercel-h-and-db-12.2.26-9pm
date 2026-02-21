@@ -18,26 +18,6 @@ const INITIAL_MASTER_SETTINGS: MasterSettings = {
 
 class DB {
 
-  // --- Required empty functions to prevent crash ---
-
-  setDirtyListener(listener: (dirty: boolean) => void) {
-    // empty function to prevent crash
-  }
-
-  setSyncListener(listener: (syncing: boolean) => void) {
-    // empty function to prevent crash
-  }
-
-  async syncWithCloud(): Promise<boolean> {
-    return false;
-  }
-
-  async loadCloudData(): Promise<boolean> {
-    return false;
-  }
-
-  // --- Existing properties ---
-
   private users: User[] = [];
   private chits: ChitGroup[] = [];
   private members: Member[] = [];
@@ -52,13 +32,19 @@ class DB {
   private isDirty = false;
   private isSyncing = false;
 
+  private onDirtyChange?: (dirty: boolean) => void;
+  private onSyncChange?: (syncing: boolean) => void;
+
   constructor() {
     this.init();
+    this.loadCloudData().catch(() => {});
   }
+
+  /* ================= INITIALIZATION ================= */
 
   private init() {
     try {
-      this.load();
+      this.loadLocal();
       if (!this.users.length) {
         this.users = [...INITIAL_USERS];
         this.saveLocal();
@@ -66,6 +52,26 @@ class DB {
     } catch {
       this.users = [...INITIAL_USERS];
     }
+  }
+
+  private loadLocal() {
+    if (typeof window === 'undefined') return;
+
+    const data = localStorage.getItem('mi_chit_db');
+    if (data) {
+      try {
+        this.deserialize(JSON.parse(data));
+      } catch {
+        console.warn("Local data corrupted");
+      }
+    }
+  }
+
+  private saveLocal() {
+    if (typeof window === 'undefined') return;
+
+    this.lastUpdated = new Date().toISOString();
+    localStorage.setItem('mi_chit_db', this.getSerializedData());
   }
 
   private deserialize(parsed: any) {
@@ -83,22 +89,6 @@ class DB {
     this.lastUpdated = parsed.lastUpdated || new Date(0).toISOString();
   }
 
-  private load() {
-    const data = localStorage.getItem('mi_chit_db');
-    if (data) {
-      try {
-        this.deserialize(JSON.parse(data));
-      } catch {
-        console.warn("Local data corrupted");
-      }
-    }
-  }
-
-  private saveLocal() {
-    this.lastUpdated = new Date().toISOString();
-    localStorage.setItem('mi_chit_db', this.getSerializedData());
-  }
-
   public getSerializedData() {
     return JSON.stringify({
       users: this.users,
@@ -114,12 +104,101 @@ class DB {
     });
   }
 
+  /* ================= SYNC SYSTEM ================= */
+
+  setDirtyListener(listener: (dirty: boolean) => void) {
+    this.onDirtyChange = listener;
+  }
+
+  setSyncListener(listener: (syncing: boolean) => void) {
+    this.onSyncChange = listener;
+  }
+
   markDirty() {
     this.isDirty = true;
     this.saveLocal();
+    this.onDirtyChange?.(true);
+
+    setTimeout(() => {
+      this.syncWithCloud().catch(() => {});
+    }, 1500);
   }
 
-  // ---------------- GETTERS ----------------
+  async syncWithCloud(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    if (!navigator.onLine) return false;
+
+    this.isSyncing = true;
+    this.onSyncChange?.(true);
+
+    try {
+      const localData = JSON.parse(this.getSerializedData());
+
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(localData)
+      });
+
+      if (!response.ok) throw new Error("Sync failed");
+
+      this.isDirty = false;
+      this.onDirtyChange?.(false);
+      return true;
+
+    } catch (error) {
+      console.error("Cloud sync failed:", error);
+      return false;
+
+    } finally {
+      this.isSyncing = false;
+      this.onSyncChange?.(false);
+    }
+  }
+
+  async loadCloudData(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    if (!navigator.onLine) return false;
+
+    this.isSyncing = true;
+    this.onSyncChange?.(true);
+
+    try {
+      const response = await fetch('/api/sync');
+      if (!response.ok) return false;
+
+      const result = await response.json();
+      if (!result?.data) return false;
+
+      const onlineData = result.data;
+
+      const localRaw = localStorage.getItem('mi_chit_db');
+      const localData = localRaw ? JSON.parse(localRaw) : null;
+
+      const onlineTime = new Date(onlineData.lastUpdated || 0).getTime();
+      const localTime = new Date(localData?.lastUpdated || 0).getTime();
+
+      if (!localData || onlineTime > localTime) {
+        this.deserialize(onlineData);
+        this.saveLocal();
+        this.isDirty = false;
+        this.onDirtyChange?.(false);
+        return true;
+      }
+
+      return false;
+
+    } catch (error) {
+      console.warn("Cloud load failed:", error);
+      return false;
+
+    } finally {
+      this.isSyncing = false;
+      this.onSyncChange?.(false);
+    }
+  }
+
+  /* ================= GETTERS ================= */
 
   getUsers = () => this.users;
   getChits = () => this.chits;
@@ -133,7 +212,7 @@ class DB {
   getDirtyStatus = () => this.isDirty;
   getSyncStatus = () => this.isSyncing;
 
-  // ---------------- MEMBER ----------------
+  /* ================= MEMBER ================= */
 
   addMember(member: Member) {
     this.members.push(member);
@@ -148,7 +227,7 @@ class DB {
     }
   }
 
-  // ---------------- CHIT ----------------
+  /* ================= CHIT ================= */
 
   addChit(chit: ChitGroup) {
     this.chits.push(chit);
@@ -163,7 +242,7 @@ class DB {
     }
   }
 
-  // ---------------- MEMBERSHIP ----------------
+  /* ================= MEMBERSHIP ================= */
 
   addMembership(membership: GroupMembership) {
     this.memberships.push(membership);
@@ -173,6 +252,7 @@ class DB {
       for (let i = 1; i <= chit.totalMonths; i++) {
         const date = new Date(chit.startMonth);
         date.setMonth(date.getMonth() + i - 1);
+
         this.installments.push({
           scheduleId: `s_${membership.groupMembershipId}_${i}`,
           chitGroupId: membership.chitGroupId,
@@ -190,7 +270,7 @@ class DB {
     this.markDirty();
   }
 
-  // ---------------- PAYMENT ----------------
+  /* ================= PAYMENT ================= */
 
   addPayment(payment: Payment) {
     this.payments.push(payment);
@@ -214,9 +294,7 @@ class DB {
   }
 }
 
-/* =====================================================
-   SINGLETON EXPORT SECTION (IMPORTANT FOR BUILD FIX)
-===================================================== */
+/* ================= SINGLETON EXPORT ================= */
 
 let dbInstance: DB | null = null;
 
@@ -227,11 +305,9 @@ function createDBInstance(): DB {
   return dbInstance;
 }
 
-// Named export (if ever needed)
 export function getDB() {
   return createDBInstance();
 }
 
-// Default export (what your frontend uses)
 const db = createDBInstance();
 export default db;
