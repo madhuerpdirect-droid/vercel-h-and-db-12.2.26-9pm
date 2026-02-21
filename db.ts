@@ -43,14 +43,11 @@ class DB {
   /* ================= INITIALIZATION ================= */
 
   private init() {
-    try {
-      this.loadLocal();
-      if (!this.users.length) {
-        this.users = [...INITIAL_USERS];
-        this.saveLocal();
-      }
-    } catch {
+    this.loadLocal();
+
+    if (!this.users.length) {
       this.users = [...INITIAL_USERS];
+      this.saveLocal();
     }
   }
 
@@ -75,10 +72,8 @@ class DB {
   }
 
   private deserialize(parsed: any) {
-    if (!parsed) return;
-
     this.users = parsed.users || [];
-    this.chits = (parsed.chits || []).map((c: any) => ({ ...c, status: c.status || ChitStatus.ACTIVE }));
+    this.chits = parsed.chits || [];
     this.members = parsed.members || [];
     this.memberships = parsed.memberships || [];
     this.installments = parsed.installments || [];
@@ -104,7 +99,7 @@ class DB {
     });
   }
 
-  /* ================= SYNC SYSTEM ================= */
+  /* ================= SYNC ================= */
 
   setDirtyListener(listener: (dirty: boolean) => void) {
     this.onDirtyChange = listener;
@@ -120,11 +115,10 @@ class DB {
     this.onDirtyChange?.(true);
 
     setTimeout(() => {
-      this.syncWithCloud().catch(() => {});
+      this.syncWithCloud();
     }, 1500);
   }
 
-  /* 🔥 THIS WAS MISSING */
   async save(): Promise<boolean> {
     this.saveLocal();
     return await this.syncWithCloud();
@@ -138,12 +132,10 @@ class DB {
     this.onSyncChange?.(true);
 
     try {
-      const localData = JSON.parse(this.getSerializedData());
-
       const response = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(localData)
+        body: this.getSerializedData()
       });
 
       if (!response.ok) throw new Error("Sync failed");
@@ -152,8 +144,8 @@ class DB {
       this.onDirtyChange?.(false);
       return true;
 
-    } catch (error) {
-      console.error("Cloud sync failed:", error);
+    } catch (err) {
+      console.error("Sync failed:", err);
       return false;
 
     } finally {
@@ -165,9 +157,6 @@ class DB {
   async loadCloudData(): Promise<boolean> {
     if (typeof window === 'undefined') return false;
     if (!navigator.onLine) return false;
-
-    this.isSyncing = true;
-    this.onSyncChange?.(true);
 
     try {
       const response = await fetch('/api/sync');
@@ -187,20 +176,15 @@ class DB {
       if (!localData || onlineTime > localTime) {
         this.deserialize(onlineData);
         this.saveLocal();
-        this.isDirty = false;
-        this.onDirtyChange?.(false);
+        this.onDirtyChange?.(false); // 🔥 THIS triggers UI update
         return true;
       }
 
       return false;
 
-    } catch (error) {
-      console.warn("Cloud load failed:", error);
+    } catch (err) {
+      console.warn("Cloud load failed:", err);
       return false;
-
-    } finally {
-      this.isSyncing = false;
-      this.onSyncChange?.(false);
     }
   }
 
@@ -218,7 +202,7 @@ class DB {
   getDirtyStatus = () => this.isDirty;
   getSyncStatus = () => this.isSyncing;
 
-  /* ================= MEMBER ================= */
+  /* ================= CRUD ================= */
 
   addMember(member: Member) {
     this.members.push(member);
@@ -233,8 +217,6 @@ class DB {
     }
   }
 
-  /* ================= CHIT ================= */
-
   addChit(chit: ChitGroup) {
     this.chits.push(chit);
     this.markDirty();
@@ -248,59 +230,18 @@ class DB {
     }
   }
 
-  /* ================= MEMBERSHIP ================= */
-
   addMembership(membership: GroupMembership) {
     this.memberships.push(membership);
-
-    const chit = this.chits.find(c => c.chitGroupId === membership.chitGroupId);
-    if (chit) {
-      for (let i = 1; i <= chit.totalMonths; i++) {
-        const date = new Date(chit.startMonth);
-        date.setMonth(date.getMonth() + i - 1);
-
-        this.installments.push({
-          scheduleId: `s_${membership.groupMembershipId}_${i}`,
-          chitGroupId: membership.chitGroupId,
-          memberId: membership.memberId,
-          monthNo: i,
-          dueDate: date.toISOString().split('T')[0],
-          dueAmount: chit.monthlyInstallmentRegular,
-          paidAmount: 0,
-          status: PaymentStatus.PENDING,
-          isPrizeMonth: false
-        });
-      }
-    }
-
     this.markDirty();
   }
 
-  /* ================= PAYMENT ================= */
-
   addPayment(payment: Payment) {
     this.payments.push(payment);
-
-    const schedule = this.installments.find(s =>
-      s.chitGroupId === payment.chitGroupId &&
-      s.memberId === payment.memberId &&
-      s.monthNo === payment.monthNo
-    );
-
-    if (schedule) {
-      schedule.paidAmount += payment.paidAmount;
-      schedule.paidDate = payment.paymentDate;
-      schedule.status =
-        schedule.paidAmount >= schedule.dueAmount
-          ? PaymentStatus.PAID
-          : PaymentStatus.PARTIAL;
-    }
-
     this.markDirty();
   }
 }
 
-/* ================= SINGLETON EXPORT ================= */
+/* ================= SINGLETON ================= */
 
 let dbInstance: DB | null = null;
 
