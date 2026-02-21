@@ -1,12 +1,8 @@
-
 import { 
   User, UserRole, ChitGroup, Member, GroupMembership, 
   InstallmentSchedule, Allotment, Payment, PaymentRequest, 
   MasterSettings, ChitStatus, PaymentStatus 
 } from './types';
-
-
-const CLOUD_FILENAME = 'bhadrakali_db.json';
 
 const INITIAL_USERS: User[] = [
   { userId: 'u1', name: 'Admin User', role: UserRole.ADMIN, username: 'admin', passwordHash: 'xdr5tgb', isActive: true },
@@ -31,80 +27,29 @@ class DB {
   private paymentRequests: PaymentRequest[] = [];
   private settings: MasterSettings = INITIAL_MASTER_SETTINGS;
   private lastUpdated: string = new Date(0).toISOString();
-  
-  private isDirty: boolean = false;
-  private isSyncing: boolean = false;
-  private hasLoaded: boolean = false;
-  private onDirtyChange?: (dirty: boolean) => void;
-  private onSyncChange?: (syncing: boolean) => void;
 
-  private syncDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private isDirty = false;
+  private isSyncing = false;
 
   constructor() {
-  this.init();
-
-  this.loadCloudData()
-    .then((loaded) => {
-      if (loaded) {
-        console.log("Cloud data loaded successfully");
-      }
-    })
-    .catch(() => {});
-}
+    this.init();
+  }
 
   private init() {
     try {
       this.load();
-      if (!this.users || this.users.length === 0) {
+      if (!this.users.length) {
         this.users = [...INITIAL_USERS];
         this.saveLocal();
       }
-      this.hasLoaded = true;
-    } catch (e) {
-      console.error("DB Init failed, resetting to defaults", e);
+    } catch {
       this.users = [...INITIAL_USERS];
-      this.hasLoaded = true;
-    }
-  }
-
-  setDirtyListener(listener: (dirty: boolean) => void) {
-    this.onDirtyChange = listener;
-  }
-
-  setSyncListener(listener: (syncing: boolean) => void) {
-    this.onSyncChange = listener;
-  }
-
-  markDirty() {
-    this.isDirty = true;
-    this.saveLocal();
-    if (this.onDirtyChange) this.onDirtyChange(true);
-    
-    if (this.syncDebounceTimer) {
-      clearTimeout(this.syncDebounceTimer);
-    }
-    
-    this.syncDebounceTimer = setTimeout(() => {
-      this.syncWithCloud().catch(() => {});
-    }, 2000);
-  }
-
-  load() {
-    const data = localStorage.getItem('mi_chit_db');
-    if (data && data !== "null" && data !== "undefined") {
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed && typeof parsed === 'object') {
-          this.deserialize(parsed);
-        }
-      } catch (e) {
-        console.error("Corrupted local storage data", e);
-      }
     }
   }
 
   private deserialize(parsed: any) {
     if (!parsed) return;
+
     this.users = parsed.users || [];
     this.chits = (parsed.chits || []).map((c: any) => ({ ...c, status: c.status || ChitStatus.ACTIVE }));
     this.members = parsed.members || [];
@@ -115,6 +60,22 @@ class DB {
     this.paymentRequests = parsed.paymentRequests || [];
     this.settings = parsed.settings || INITIAL_MASTER_SETTINGS;
     this.lastUpdated = parsed.lastUpdated || new Date(0).toISOString();
+  }
+
+  private load() {
+    const data = localStorage.getItem('mi_chit_db');
+    if (data) {
+      try {
+        this.deserialize(JSON.parse(data));
+      } catch {
+        console.warn("Local data corrupted");
+      }
+    }
+  }
+
+  private saveLocal() {
+    this.lastUpdated = new Date().toISOString();
+    localStorage.setItem('mi_chit_db', this.getSerializedData());
   }
 
   public getSerializedData() {
@@ -129,201 +90,44 @@ class DB {
       paymentRequests: this.paymentRequests,
       settings: this.settings,
       lastUpdated: this.lastUpdated
-    }, null, 2);
-  }
-
-  saveLocal() {
-    try {
-      this.lastUpdated = new Date().toISOString();
-      const dataString = this.getSerializedData();
-      localStorage.setItem('mi_chit_db', dataString);
-      return true;
-    } catch (e) {
-      console.error("Critical: Local storage save failed.", e);
-      return false;
-    }
-  }
-
-  async save(): Promise<boolean> {
-    this.saveLocal();
-    return await this.syncWithCloud();
-  }
-async syncWithCloud(): Promise<boolean> {
-  if (!navigator.onLine) return false;
-
-  this.isSyncing = true;
-  this.onSyncChange?.(true);
-
-  try {
-    // First check cloud data
-    const cloudResponse = await fetch('/api/sync');
-    let cloudData: any = null;
-
-    if (cloudResponse.ok) {
-      const result = await cloudResponse.json();
-      cloudData = result.data;
-    }
-
-    const localData = JSON.parse(this.getSerializedData());
-
-    const localHasData =
-      (localData.members?.length || 0) > 0 ||
-      (localData.chits?.length || 0) > 0;
-
-    const cloudHasData =
-      cloudData &&
-      ((cloudData.members?.length || 0) > 0 ||
-       (cloudData.chits?.length || 0) > 0);
-
-    // 🚨 PROTECTION: do not overwrite cloud with empty local
-    if (!localHasData && cloudHasData) {
-      console.warn("Protected: Local empty, cloud has data. Skipping upload.");
-      return false;
-    }
-
-    // Upload to cloud
-    const response = await fetch('/api/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(localData)
     });
-
-    if (!response.ok) throw new Error('Cloud sync failed');
-
-    this.isDirty = false;
-    this.onDirtyChange?.(false);
-    localStorage.setItem('mi_chit_last_sync', new Date().toISOString());
-
-    return true;
-
-  } catch (error) {
-    console.error("Cloud sync failed:", error);
-    return false;
-
-  } finally {
-    this.isSyncing = false;
-    this.onSyncChange?.(false);
-  }
-}
-  async loadCloudData(): Promise<boolean> {
-  if (!navigator.onLine) return false;
-
-  this.isSyncing = true;
-  this.onSyncChange?.(true);
-
-  try {
-    const response = await fetch('/api/sync');
-    if (!response.ok) return false;
-
-    const result = await response.json();
-    if (!result.data) return false;
-
-    const onlineData = result.data;
-    const localRaw = localStorage.getItem('mi_chit_db');
-    const localData = localRaw ? JSON.parse(localRaw) : null;
-
-    const onlineTime = new Date(onlineData.lastUpdated || 0).getTime();
-    const localTime = new Date(localData?.lastUpdated || 0).getTime();
-
-    if (onlineTime > localTime || !localData) {
-  this.deserialize(onlineData);
-  this.saveLocal();
-  this.isDirty = false;
-  this.onDirtyChange?.(false);
-
-  // 🔵 FORCE REFRESH
-  window.location.reload();
-
-  return true;
-}
-
-    return false;
-
-  } catch (e) {
-    console.warn("Cloud load failed:", e);
-    return false;
-  } finally {
-    this.isSyncing = false;
-    this.onSyncChange?.(false);
-  }
-}
-
-  restore(dataString: string): boolean {
-    try {
-      const parsed = JSON.parse(dataString);
-      if (parsed && typeof parsed === 'object') {
-        this.deserialize(parsed);
-        this.markDirty();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error("Restore failed", e);
-      return false;
-    }
   }
 
-  updateSettings(data: Partial<MasterSettings>) {
-    this.settings = { ...this.settings, ...data };
-    this.markDirty();
+  markDirty() {
+    this.isDirty = true;
+    this.saveLocal();
   }
 
-  getUsers = () => this.users || [];
-  getChits = () => this.chits || [];
-  getMembers = () => this.members || [];
-  getMemberships = () => this.memberships || [];
-  getInstallments = () => this.installments || [];
-  getAllotments = () => this.allotments || [];
-  getPayments = () => this.payments || [];
-  getPaymentRequests = () => this.paymentRequests || [];
-  getSettings = () => this.settings || INITIAL_MASTER_SETTINGS;
+  // ---------------- GETTERS ----------------
+
+  getUsers = () => this.users;
+  getChits = () => this.chits;
+  getMembers = () => this.members;
+  getMemberships = () => this.memberships;
+  getInstallments = () => this.installments;
+  getAllotments = () => this.allotments;
+  getPayments = () => this.payments;
+  getPaymentRequests = () => this.paymentRequests;
+  getSettings = () => this.settings;
   getDirtyStatus = () => this.isDirty;
   getSyncStatus = () => this.isSyncing;
+
+  // ---------------- MEMBER ----------------
 
   addMember(member: Member) {
     this.members.push(member);
     this.markDirty();
   }
 
-  updateMember(memberId: string, data: Partial<Member>, targetGroupId?: string) {
+  updateMember(memberId: string, data: Partial<Member>) {
     const idx = this.members.findIndex(m => m.memberId === memberId);
     if (idx !== -1) {
       this.members[idx] = { ...this.members[idx], ...data };
-      if (targetGroupId) {
-        const msIdx = this.memberships.findIndex(m => m.memberId === memberId);
-        if (msIdx !== -1) {
-          const oldGroupId = this.memberships[msIdx].chitGroupId;
-          if (oldGroupId !== targetGroupId) {
-            const chit = this.chits.find(c => c.chitGroupId === targetGroupId);
-            if (chit && chit.maxMembers) {
-              const currentCount = this.memberships.filter(m => m.chitGroupId === targetGroupId).length;
-              if (currentCount >= chit.maxMembers) return; 
-            }
-            this.memberships[msIdx].chitGroupId = targetGroupId;
-            this.installments = this.installments.filter(i => !(i.memberId === memberId && i.chitGroupId === oldGroupId));
-            if (chit) {
-              for (let i = 1; i <= chit.totalMonths; i++) {
-                const date = new Date(chit.startMonth);
-                date.setMonth(date.getMonth() + i - 1);
-                this.installments.push({
-                  scheduleId: `s_${this.memberships[msIdx].groupMembershipId}_${i}`,
-                  chitGroupId: targetGroupId,
-                  memberId: memberId,
-                  monthNo: i,
-                  dueDate: date.toISOString().split('T')[0],
-                  dueAmount: chit.monthlyInstallmentRegular,
-                  paidAmount: 0,
-                  status: PaymentStatus.PENDING,
-                  isPrizeMonth: false
-                });
-              }
-            }
-          }
-        }
-      }
       this.markDirty();
     }
   }
+
+  // ---------------- CHIT ----------------
 
   addChit(chit: ChitGroup) {
     this.chits.push(chit);
@@ -338,17 +142,12 @@ async syncWithCloud(): Promise<boolean> {
     }
   }
 
-  addMembership(membership: GroupMembership) {
-    const exists = this.memberships.find(m => m.chitGroupId === membership.chitGroupId && m.memberId === membership.memberId);
-    if (exists) return;
-    
-    const chit = this.chits.find(c => c.chitGroupId === membership.chitGroupId);
-    if (chit && chit.maxMembers) {
-      const currentCount = this.memberships.filter(m => m.chitGroupId === membership.chitGroupId).length;
-      if (currentCount >= chit.maxMembers) return; 
-    }
+  // ---------------- MEMBERSHIP ----------------
 
+  addMembership(membership: GroupMembership) {
     this.memberships.push(membership);
+
+    const chit = this.chits.find(c => c.chitGroupId === membership.chitGroupId);
     if (chit) {
       for (let i = 1; i <= chit.totalMonths; i++) {
         const date = new Date(chit.startMonth);
@@ -366,111 +165,52 @@ async syncWithCloud(): Promise<boolean> {
         });
       }
     }
+
     this.markDirty();
   }
 
-  bulkAddMembers(membersList: { member: Member, chitGroupId?: string }[]) {
-    const now = Date.now();
-    membersList.forEach((item, index) => {
-      if (item.chitGroupId) {
-        const chit = this.chits.find(c => c.chitGroupId === item.chitGroupId);
-        if (chit && chit.maxMembers) {
-          const currentCount = this.memberships.filter(m => m.chitGroupId === item.chitGroupId).length;
-          if (currentCount >= chit.maxMembers) return; 
-        }
-      }
-
-      this.members.push(item.member);
-      if (item.chitGroupId) {
-        const groupMemberships = this.memberships.filter(m => m.chitGroupId === item.chitGroupId);
-        const nextToken = groupMemberships.length > 0 ? Math.max(...groupMemberships.map(m => m.tokenNo)) + 1 : 1;
-        this.addMembership({
-          groupMembershipId: `gm_bulk_${now}_${index}_${Math.floor(Math.random() * 1000)}`,
-          chitGroupId: item.chitGroupId,
-          memberId: item.member.memberId,
-          tokenNo: nextToken,
-          joinedOn: new Date().toISOString().split('T')[0]
-        });
-      }
-    });
-    this.markDirty();
-  }
-
-  confirmAllotment(allotment: Allotment) {
-    this.allotments.push(allotment);
-    const chit = this.chits.find(c => c.chitGroupId === allotment.chitGroupId);
-    if (!chit) return;
-    const currentSchedule = this.installments.find(s => s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo === allotment.monthNo);
-    if (currentSchedule) currentSchedule.isPrizeMonth = true;
-    this.installments.forEach(s => {
-      if (s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo > allotment.monthNo) {
-        s.dueAmount = chit.monthlyInstallmentAllotted;
-      }
-    });
-    this.markDirty();
-  }
-
-  updateAllotment(allotmentId: string, data: Partial<Allotment>) {
-    const idx = this.allotments.findIndex(a => a.allotmentId === allotmentId);
-    if (idx === -1) return;
-    const oldAllotment = this.allotments[idx];
-    const chit = this.chits.find(c => c.chitGroupId === oldAllotment.chitGroupId);
-    if (!chit) return;
-
-    this.installments.forEach(s => {
-      if (s.chitGroupId === oldAllotment.chitGroupId && s.memberId === oldAllotment.memberId) {
-        if (s.monthNo === oldAllotment.monthNo) s.isPrizeMonth = false;
-        if (s.monthNo > oldAllotment.monthNo) s.dueAmount = chit.monthlyInstallmentRegular;
-      }
-    });
-
-    this.allotments[idx] = { ...oldAllotment, ...data };
-    const newAllotment = this.allotments[idx];
-
-    this.installments.forEach(s => {
-      if (s.chitGroupId === newAllotment.chitGroupId && s.memberId === newAllotment.memberId) {
-        if (s.monthNo === newAllotment.monthNo) s.isPrizeMonth = true;
-        if (s.monthNo > newAllotment.monthNo) s.dueAmount = chit.monthlyInstallmentAllotted;
-      }
-    });
-    this.markDirty();
-  }
-
-  revokeAllotment(allotmentId: string) {
-    const idx = this.allotments.findIndex(a => a.allotmentId === allotmentId);
-    if (idx === -1) return;
-    const allotment = this.allotments[idx];
-    allotment.revoked = true;
-    allotment.isConfirmed = false;
-    const chit = this.chits.find(c => c.chitGroupId === allotment.chitGroupId);
-    if (!chit) return;
-    const currentSchedule = this.installments.find(s => s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo === allotment.monthNo);
-    if (currentSchedule) currentSchedule.isPrizeMonth = false;
-    this.installments.forEach(s => {
-      if (s.chitGroupId === allotment.chitGroupId && s.memberId === allotment.memberId && s.monthNo > allotment.monthNo) {
-        s.dueAmount = chit.monthlyInstallmentRegular;
-      }
-    });
-    this.markDirty();
-  }
+  // ---------------- PAYMENT ----------------
 
   addPayment(payment: Payment) {
     this.payments.push(payment);
-    const schedule = this.installments.find(s => s.chitGroupId === payment.chitGroupId && s.memberId === payment.memberId && s.monthNo === payment.monthNo);
+
+    const schedule = this.installments.find(s =>
+      s.chitGroupId === payment.chitGroupId &&
+      s.memberId === payment.memberId &&
+      s.monthNo === payment.monthNo
+    );
+
     if (schedule) {
       schedule.paidAmount += payment.paidAmount;
       schedule.paidDate = payment.paymentDate;
-      schedule.status = schedule.paidAmount >= schedule.dueAmount ? PaymentStatus.PAID : PaymentStatus.PARTIAL;
+      schedule.status =
+        schedule.paidAmount >= schedule.dueAmount
+          ? PaymentStatus.PAID
+          : PaymentStatus.PARTIAL;
     }
+
     this.markDirty();
   }
 }
 
+/* =====================================================
+   SINGLETON EXPORT SECTION (IMPORTANT FOR BUILD FIX)
+===================================================== */
+
 let dbInstance: DB | null = null;
 
-export function getDB() {
+function createDBInstance(): DB {
   if (!dbInstance) {
     dbInstance = new DB();
   }
   return dbInstance;
 }
+
+// Named export (if ever needed)
+export function getDB() {
+  return createDBInstance();
+}
+
+// Default export (what your frontend uses)
+const db = createDBInstance();
+export default db;
