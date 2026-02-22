@@ -471,7 +471,7 @@ const App: React.FC = () => {
                     member: { 
                       memberId: `m_bulk_${now}_${i}`, 
                       name: (p[0] || "Unnamed").trim(), 
-                      mobile: ((p[1] || "").replace(/\D/g, '')).slice(-10), 
+                      mobile: (p[1] || "").replace(/\D/g, '').substring(0, 10), 
                       address: (p[2] || "").trim(), 
                       idProofType: (p[3] || "Aadhar").trim(), 
                       idProofNumber: (p[4] || "").trim(), 
@@ -515,7 +515,7 @@ const App: React.FC = () => {
                 const t = e.target as any;
                 const groupId = t.mgroup.value;
                 if (!groupId) return alert('Select Group');
-                const memberData = { name: t.mname.value, mobile: t.mmobile.value.replace(/\D/g, '').slice(-4), address: t.maddr.value, idProofType: t.midtype.value, idProofNumber: t.midnum.value, isActive: true };
+                const memberData = { name: t.mname.value, mobile: t.mmobile.value.replace(/\D/g, '').slice(0, 10), address: t.maddr.value, idProofType: t.midtype.value, idProofNumber: t.midnum.value, isActive: true };
                 if (masterView === 'editMember' && editingMember) {
                   db.updateMember(editingMember.memberId, memberData, groupId);
                 } else {
