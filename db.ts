@@ -37,7 +37,16 @@ class DB {
 
   constructor() {
     this.init();
+
+    // 🔒 Cloud always wins on load
     this.loadCloudData().catch(() => {});
+
+    // 🔄 Poll cloud every 5 seconds for multi-browser sync
+    if (typeof window !== 'undefined') {
+      setInterval(() => {
+        this.loadCloudData();
+      }, 5000);
+    }
   }
 
   /* ================= INITIALIZATION ================= */
@@ -130,6 +139,18 @@ class DB {
     if (typeof window === 'undefined') return false;
     if (!navigator.onLine) return false;
 
+    // 🔒 Prevent empty DB from overwriting cloud
+    const isEmptyDB =
+      this.chits.length === 0 &&
+      this.members.length === 0 &&
+      this.memberships.length === 0 &&
+      this.installments.length === 0;
+
+    if (isEmptyDB) {
+      console.warn("Blocked empty DB cloud overwrite.");
+      return false;
+    }
+
     this.isSyncing = true;
     this.onSyncChange?.(true);
 
@@ -169,20 +190,11 @@ class DB {
 
       const onlineData = result.data;
 
-      const localRaw = localStorage.getItem('mi_chit_db');
-      const localData = localRaw ? JSON.parse(localRaw) : null;
-
-      const onlineTime = new Date(onlineData.lastUpdated || 0).getTime();
-      const localTime = new Date(localData?.lastUpdated || 0).getTime();
-
-      if (!localData || onlineTime > localTime) {
-        this.deserialize(onlineData);
-        this.saveLocal();
-        this.onDirtyChange?.(false);
-        return true;
-      }
-
-      return false;
+      // 🔒 Cloud is single source of truth
+      this.deserialize(onlineData);
+      this.saveLocal();
+      this.onDirtyChange?.(false);
+      return true;
 
     } catch (err) {
       console.warn("Cloud load failed:", err);
@@ -208,38 +220,39 @@ class DB {
 
   addMember(member: Member) {
 
-  const cleanMobile = String(member.mobile)
-    .replace(/\D/g, '')      // remove non-numbers
-    .padStart(10, '')        // prevent trimming
-    .slice(0, 10);           // ensure max 10 digits
+    const cleanMobile = String(member.mobile)
+      .replace(/\D/g, '')
+      .padStart(10, '')
+      .slice(0, 10);
 
-  const safeMember: Member = {
-    ...member,
-    mobile: cleanMobile
-  };
-
-  this.members.push(safeMember);
-  this.markDirty();
-}
-  updateMember(memberId: string, data: Partial<Member>) {
-
-  const idx = this.members.findIndex(m => m.memberId === memberId);
-
-  if (idx !== -1) {
-
-    const updatedMobile = data.mobile
-      ? String(data.mobile).replace(/\D/g, '').slice(0, 10)
-      : this.members[idx].mobile;
-
-    this.members[idx] = {
-      ...this.members[idx],
-      ...data,
-      mobile: updatedMobile
+    const safeMember: Member = {
+      ...member,
+      mobile: cleanMobile
     };
 
+    this.members.push(safeMember);
     this.markDirty();
   }
-}
+
+  updateMember(memberId: string, data: Partial<Member>) {
+
+    const idx = this.members.findIndex(m => m.memberId === memberId);
+
+    if (idx !== -1) {
+
+      const updatedMobile = data.mobile
+        ? String(data.mobile).replace(/\D/g, '').slice(0, 10)
+        : this.members[idx].mobile;
+
+      this.members[idx] = {
+        ...this.members[idx],
+        ...data,
+        mobile: updatedMobile
+      };
+
+      this.markDirty();
+    }
+  }
 
   addChit(chit: ChitGroup) {
     this.chits.push(chit);
